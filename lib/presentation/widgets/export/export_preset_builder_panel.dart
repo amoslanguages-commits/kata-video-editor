@@ -4,7 +4,10 @@ import 'package:uuid/uuid.dart';
 
 import 'package:nle_editor/core/theme/app_theme.dart';
 import 'package:nle_editor/domain/export/export_preset_builder_models.dart';
+import 'package:nle_editor/presentation/providers/editor_providers.dart';
 import 'package:nle_editor/presentation/providers/export_preset_builder_providers.dart';
+import 'package:nle_editor/presentation/providers/export_readiness_provider.dart';
+import 'package:nle_editor/presentation/providers/monetization_providers.dart';
 
 class ExportPresetBuilderPanel extends ConsumerStatefulWidget {
   final String projectId;
@@ -33,6 +36,7 @@ class _ExportPresetBuilderPanelState
   String _platform = 'Custom';
   bool _removeWatermark = false;
   bool _saving = false;
+  String? _exportingPresetId;
 
   @override
   void dispose() {
@@ -87,7 +91,13 @@ class _ExportPresetBuilderPanelState
               const SizedBox(height: 20),
               const _SectionTitle('Built-in Platform Presets'),
               const SizedBox(height: 10),
-              ...builtIn.map((preset) => _PresetCard(preset: preset)),
+              ...builtIn.map(
+                (preset) => _PresetCard(
+                  preset: preset,
+                  isExporting: _exportingPresetId == preset.id,
+                  onUse: () => _startExportWithPreset(preset),
+                ),
+              ),
               const SizedBox(height: 20),
               const _SectionTitle('My Custom Presets'),
               const SizedBox(height: 10),
@@ -97,6 +107,8 @@ class _ExportPresetBuilderPanelState
                 ...custom.map(
                   (preset) => _PresetCard(
                     preset: preset,
+                    isExporting: _exportingPresetId == preset.id,
+                    onUse: () => _startExportWithPreset(preset),
                     onRemove: () => _removePreset(preset.id),
                   ),
                 ),
@@ -154,6 +166,62 @@ class _ExportPresetBuilderPanelState
       }
     } finally {
       if (mounted) setState(() => _saving = false);
+    }
+  }
+
+  Future<void> _startExportWithPreset(NleExportPresetSpec preset) async {
+    final readiness = ref.read(exportReadinessProvider(widget.projectId));
+    if (!readiness.isReady) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(readiness.userMessage),
+          backgroundColor: AppTheme.error,
+        ),
+      );
+      return;
+    }
+
+    final monetization = ref.read(monetizationProvider);
+    final rules = ref.read(proPlanRulesProvider);
+    final decision = rules.checkExport(
+      entitlement: monetization.entitlement,
+      width: preset.width,
+      height: preset.height,
+      removeWatermarkRequested: preset.removeWatermark,
+    );
+
+    if (!decision.allowed) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('This export preset requires a premium export upgrade.'),
+          backgroundColor: AppTheme.warning,
+        ),
+      );
+      return;
+    }
+
+    setState(() => _exportingPresetId = preset.id);
+    try {
+      await ref.read(nativeExportServiceProvider).startExport(
+            projectId: widget.projectId,
+            settings: preset.exportSettings,
+          );
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('${preset.name} export started.')),
+        );
+      }
+    } catch (error) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Export failed to start: $error'),
+            backgroundColor: AppTheme.error,
+          ),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _exportingPresetId = null);
     }
   }
 
@@ -373,9 +441,16 @@ class _SectionTitle extends StatelessWidget {
 
 class _PresetCard extends StatelessWidget {
   final NleExportPresetSpec preset;
+  final bool isExporting;
+  final VoidCallback onUse;
   final VoidCallback? onRemove;
 
-  const _PresetCard({required this.preset, this.onRemove});
+  const _PresetCard({
+    required this.preset,
+    required this.isExporting,
+    required this.onUse,
+    this.onRemove,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -387,44 +462,57 @@ class _PresetCard extends StatelessWidget {
         borderRadius: BorderRadius.circular(14),
         border: Border.all(color: AppTheme.borderSubtle),
       ),
-      child: Row(
+      child: Column(
         children: [
-          Icon(
-            preset.isBuiltIn ? Icons.verified_rounded : Icons.tune_rounded,
-            color: preset.isBuiltIn ? AppTheme.accentPrimary : AppTheme.success,
+          Row(
+            children: [
+              Icon(
+                preset.isBuiltIn ? Icons.verified_rounded : Icons.tune_rounded,
+                color: preset.isBuiltIn ? AppTheme.accentPrimary : AppTheme.success,
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      preset.name,
+                      style: const TextStyle(
+                        color: AppTheme.textPrimary,
+                        fontSize: 14,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      '${preset.resolutionLabel} • ${preset.frameRateLabel} • ${preset.bitrateLabel} • ${preset.format.toUpperCase()}',
+                      style: const TextStyle(color: AppTheme.textSecondary, fontSize: 12),
+                    ),
+                    const SizedBox(height: 3),
+                    Text(
+                      preset.description,
+                      style: const TextStyle(color: AppTheme.textMuted, fontSize: 11),
+                    ),
+                  ],
+                ),
+              ),
+              if (onRemove != null)
+                IconButton(
+                  tooltip: 'Remove preset',
+                  onPressed: onRemove,
+                  icon: const Icon(Icons.close_rounded, color: AppTheme.error),
+                ),
+            ],
           ),
-          const SizedBox(width: 12),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  preset.name,
-                  style: const TextStyle(
-                    color: AppTheme.textPrimary,
-                    fontSize: 14,
-                    fontWeight: FontWeight.w700,
-                  ),
-                ),
-                const SizedBox(height: 4),
-                Text(
-                  '${preset.resolutionLabel} • ${preset.frameRateLabel} • ${preset.bitrateLabel} • ${preset.format.toUpperCase()}',
-                  style: const TextStyle(color: AppTheme.textSecondary, fontSize: 12),
-                ),
-                const SizedBox(height: 3),
-                Text(
-                  preset.description,
-                  style: const TextStyle(color: AppTheme.textMuted, fontSize: 11),
-                ),
-              ],
+          const SizedBox(height: 12),
+          SizedBox(
+            width: double.infinity,
+            child: ElevatedButton.icon(
+              onPressed: isExporting ? null : onUse,
+              icon: const Icon(Icons.rocket_launch_rounded),
+              label: Text(isExporting ? 'Starting export...' : 'Start Export'),
             ),
           ),
-          if (onRemove != null)
-            IconButton(
-              tooltip: 'Remove preset',
-              onPressed: onRemove,
-              icon: const Icon(Icons.close_rounded, color: AppTheme.error),
-            ),
         ],
       ),
     );
