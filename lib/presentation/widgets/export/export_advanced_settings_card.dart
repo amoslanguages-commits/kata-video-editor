@@ -20,6 +20,10 @@ class ExportAdvancedSettingsCard extends ConsumerStatefulWidget {
 
 class _ExportAdvancedSettingsCardState
     extends ConsumerState<ExportAdvancedSettingsCard> {
+  final _customPathController = TextEditingController();
+  final _metadataTitleController = TextEditingController();
+  final _metadataCreatorController = TextEditingController();
+
   bool _loaded = false;
 
   @override
@@ -28,9 +32,20 @@ class _ExportAdvancedSettingsCardState
     Future.microtask(_loadSavedSettings);
   }
 
+  @override
+  void dispose() {
+    _customPathController.dispose();
+    _metadataTitleController.dispose();
+    _metadataCreatorController.dispose();
+    super.dispose();
+  }
+
   Future<void> _loadSavedSettings() async {
     final saved = await loadAdvancedExportSettings(widget.projectId);
     if (!mounted) return;
+    _customPathController.text = saved['customDirectoryPath']?.toString() ?? '';
+    _metadataTitleController.text = saved['metadataTitle']?.toString() ?? '';
+    _metadataCreatorController.text = saved['metadataCreator']?.toString() ?? '';
     ref.read(advancedExportSettingsProvider(widget.projectId).notifier).state = saved;
     setState(() => _loaded = true);
   }
@@ -88,10 +103,8 @@ class _ExportAdvancedSettingsCardState
           if (settings['destinationMode'] == ExportDestinationModes.customFolder) ...[
             const SizedBox(height: 8),
             TextField(
+              controller: _customPathController,
               decoration: const InputDecoration(labelText: 'Custom folder path'),
-              controller: TextEditingController(
-                text: settings['customDirectoryPath']?.toString() ?? '',
-              ),
               onChanged: (value) => set('customDirectoryPath', value),
             ),
           ],
@@ -171,18 +184,14 @@ class _ExportAdvancedSettingsCardState
           ),
           const SizedBox(height: 8),
           TextField(
+            controller: _metadataTitleController,
             decoration: const InputDecoration(labelText: 'Metadata title'),
-            controller: TextEditingController(
-              text: settings['metadataTitle']?.toString() ?? '',
-            ),
             onChanged: (value) => set('metadataTitle', value),
           ),
           const SizedBox(height: 8),
           TextField(
+            controller: _metadataCreatorController,
             decoration: const InputDecoration(labelText: 'Metadata creator'),
-            controller: TextEditingController(
-              text: settings['metadataCreator']?.toString() ?? '',
-            ),
             onChanged: (value) => set('metadataCreator', value),
           ),
           _Switch(
