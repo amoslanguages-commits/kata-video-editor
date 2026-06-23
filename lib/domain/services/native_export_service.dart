@@ -4,6 +4,7 @@ import 'dart:io';
 import 'package:drift/drift.dart';
 import 'package:uuid/uuid.dart';
 import 'package:path/path.dart' as p;
+import 'package:shared_preferences/shared_preferences.dart';
 
 import 'package:nle_editor/data/database/app_database.dart';
 import 'package:nle_editor/data/repositories/export_repository.dart';
@@ -38,15 +39,20 @@ class NativeExportService {
     required this.database,
   });
 
-  /// Starts a native export for [projectId] using [settings].
   Future<String> startExport({
     required String projectId,
     required Map<String, dynamic> settings,
   }) async {
     final jobId = _uuid.v4();
-    final advanced = AdvancedExportSettings.fromMap(settings);
+    final persistedAdvancedSettings = await _loadAdvancedSettings(projectId);
+    final mergedSettings = {
+      ...persistedAdvancedSettings,
+      ...settings,
+    };
+    final advanced = AdvancedExportSettings.fromMap(mergedSettings);
 
-    final permissionResult = await nativeBridge.checkExportPermissions(settings: settings);
+    final permissionResult =
+        await nativeBridge.checkExportPermissions(settings: mergedSettings);
     if (!permissionResult.accepted) {
       throw StateError(permissionResult.message ?? 'Export permissions are not ready.');
     }
@@ -57,7 +63,7 @@ class NativeExportService {
       final qaResult = await nativeBridge.validateExportGraph(
         projectId: projectId,
         renderGraphJson: renderGraphJson,
-        settings: settings,
+        settings: mergedSettings,
       );
       if (!qaResult.accepted) {
         throw StateError(qaResult.message ?? 'Export validation failed.');
@@ -71,19 +77,19 @@ class NativeExportService {
       advanced: advanced,
     );
 
-    final requestedName = settings['outputFileName']?.toString().trim();
+    final requestedName = mergedSettings['outputFileName']?.toString().trim();
     final outputFileName = requestedName == null || requestedName.isEmpty
         ? const ExportFilenameBuilder().build(
-            pattern: settings['filenamePattern']?.toString() ??
+            pattern: mergedSettings['filenamePattern']?.toString() ??
                 ExportFilenamePatterns.defaultPattern,
             projectName: project.name,
-            presetName: settings['presetName']?.toString() ??
-                settings['preset']?.toString() ??
+            presetName: mergedSettings['presetName']?.toString() ??
+                mergedSettings['preset']?.toString() ??
                 'export',
-            platform: settings['platform']?.toString() ?? 'video',
+            platform: mergedSettings['platform']?.toString() ?? 'video',
             resolution:
-                '${settings['width'] ?? project.targetWidth}x${settings['resolution'] ?? project.targetHeight}',
-            extension: settings['format']?.toString() ?? 'mp4',
+                '${mergedSettings['width'] ?? project.targetWidth}x${mergedSettings['resolution'] ?? project.targetHeight}',
+            extension: mergedSettings['format']?.toString() ?? 'mp4',
             version: (DateTime.now().millisecondsSinceEpoch % 99) + 1,
           )
         : requestedName;
@@ -96,10 +102,10 @@ class NativeExportService {
 
     final aspectRatio = project.aspectRatio;
     final finalSettings = {
-      ...settings,
+      ...mergedSettings,
       'aspectRatio': aspectRatio,
-      'resolution': settings['resolution'] ?? project.targetHeight,
-      'frameRate': settings['frameRate'] ?? project.targetFrameRate,
+      'resolution': mergedSettings['resolution'] ?? project.targetHeight,
+      'frameRate': mergedSettings['frameRate'] ?? project.targetFrameRate,
       'outputFileName': finalOutputFileName,
       'outputPath': outputPath,
       'destinationMode': advanced.destinationMode,
@@ -146,6 +152,22 @@ class NativeExportService {
     }
 
     return jobId;
+  }
+
+  Future<Map<String, dynamic>> _loadAdvancedSettings(String projectId) async {
+    final prefs = await SharedPreferences.getInstance();
+    final raw = prefs.getString('nle.export.advanced_settings.$projectId');
+    if (raw == null || raw.trim().isEmpty) {
+      return const AdvancedExportSettings().toSettingsMap();
+    }
+    try {
+      final decoded = jsonDecode(raw);
+      if (decoded is Map<String, dynamic>) return decoded;
+      if (decoded is Map) {
+        return decoded.map((key, value) => MapEntry(key.toString(), value));
+      }
+    } catch (_) {}
+    return const AdvancedExportSettings().toSettingsMap();
   }
 
   Future<String> _resolveOutputDirectory({
