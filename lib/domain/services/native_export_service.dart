@@ -11,6 +11,7 @@ import 'package:nle_editor/data/repositories/export_repository.dart';
 import 'package:nle_editor/domain/export/advanced_export_settings.dart';
 import 'package:nle_editor/domain/export/export_filename_builder.dart';
 import 'package:nle_editor/domain/export/export_filename_versioner.dart';
+import 'package:nle_editor/domain/export/export_preflight_service.dart';
 import 'package:nle_editor/domain/render_graph/render_graph_service.dart';
 import 'package:nle_editor/domain/services/project_storage_service.dart';
 import 'package:nle_editor/native_bridge/native_bridge_contract.dart';
@@ -23,6 +24,7 @@ class NativeExportService {
   final RenderGraphService renderGraphService;
   final ProjectStorageService storageService;
   final AppDatabase database;
+  final ExportPreflightService preflightService;
 
   static const _uuid = Uuid();
 
@@ -32,6 +34,7 @@ class NativeExportService {
     required this.renderGraphService,
     required this.storageService,
     required this.database,
+    this.preflightService = const ExportPreflightService(),
   });
 
   Future<String> startExport({
@@ -108,7 +111,35 @@ class NativeExportService {
       'outputPath': outputPath,
       'destinationMode': advanced.destinationMode,
     };
-    final profile = NativeExportProfile.fromSettings(finalSettings);
+
+    final preflight = await preflightService.check(
+      projectId: projectId,
+      renderGraphJson: renderGraphJson,
+      outputPath: outputPath,
+      settings: finalSettings,
+    );
+    final hardenedSettings = {
+      ...finalSettings,
+      'preflight': preflight.toJson(),
+    };
+
+    if (!preflight.ready) {
+      await exportRepository.insertExportJob(
+        ExportJobsCompanion.insert(
+          id: jobId,
+          projectId: projectId,
+          status: const Value('failed'),
+          progress: const Value(0),
+          stage: const Value('Preflight failed'),
+          settings: jsonEncode(hardenedSettings),
+          outputPath: Value(outputPath),
+          errorMessage: Value(preflight.blockingSummary()),
+        ),
+      );
+      throw StateError(preflight.blockingSummary());
+    }
+
+    final profile = NativeExportProfile.fromSettings(hardenedSettings);
 
     await exportRepository.insertExportJob(
       ExportJobsCompanion.insert(
@@ -116,8 +147,9 @@ class NativeExportService {
         projectId: projectId,
         status: const Value('running'),
         progress: const Value(0),
-        stage: const Value('Preparing'),
-        settings: jsonEncode(finalSettings),
+        stage: Value(preflight.warnings.isEmpty ? 'Preparing' : 'Preparing with warnings'),
+        outputPath: Value(outputPath),
+        settings: jsonEncode(hardenedSettings),
       ),
     );
 
