@@ -11,6 +11,7 @@ bash scripts/cache_index_smoke.sh
 bash scripts/proxy_smoke_android.sh
 bash scripts/export_smoke_android.sh
 bash scripts/audio_mixdown_export_smoke.sh
+bash scripts/export_edge_case_qa.sh
 
 if command -v xcodebuild >/dev/null 2>&1; then
   bash scripts/proxy_smoke_ios.sh
