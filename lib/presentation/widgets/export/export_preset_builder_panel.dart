@@ -1,9 +1,11 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:path/path.dart' as p;
 import 'package:uuid/uuid.dart';
 
 import 'package:nle_editor/core/theme/app_theme.dart';
 import 'package:nle_editor/domain/export/export_filename_builder.dart';
+import 'package:nle_editor/domain/export/export_filename_versioner.dart';
 import 'package:nle_editor/domain/export/export_preset_builder_models.dart';
 import 'package:nle_editor/domain/export/export_quality_advisor.dart';
 import 'package:nle_editor/presentation/providers/editor_providers.dart';
@@ -225,12 +227,27 @@ class _ExportPresetBuilderPanelState
     }
 
     final projectName = project?.name ?? 'Project';
-    final outputFileName = _buildOutputFileName(preset, projectName);
+    final previewFileName = _buildOutputFileName(preset, projectName);
+    final folders = await ref.read(projectStorageServiceProvider).getProjectFolders(widget.projectId);
+    final finalOutputPath = await const ExportFilenameVersioner().uniquePath(
+      directoryPath: folders.exports,
+      fileName: previewFileName,
+    );
+    final finalOutputFileName = p.basename(finalOutputPath);
+
+    if (finalOutputFileName != previewFileName) {
+      final shouldContinue = await _showFilenameConflictDialog(
+        requestedName: previewFileName,
+        finalName: finalOutputFileName,
+      );
+      if (!shouldContinue) return;
+    }
+
     final settings = {
       ...preset.exportSettings,
       'presetName': preset.name,
       'filenamePattern': ExportFilenamePatterns.defaultPattern,
-      'outputFileName': outputFileName,
+      'outputFileName': finalOutputFileName,
     };
 
     setState(() => _exportingPresetId = preset.id);
@@ -241,7 +258,7 @@ class _ExportPresetBuilderPanelState
           );
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('${preset.name} export started: $outputFileName')),
+          SnackBar(content: Text('${preset.name} export started: $finalOutputFileName')),
         );
       }
     } catch (error) {
@@ -268,6 +285,45 @@ class _ExportPresetBuilderPanelState
       extension: preset.format,
       version: (DateTime.now().millisecondsSinceEpoch % 99) + 1,
     );
+  }
+
+  Future<bool> _showFilenameConflictDialog({
+    required String requestedName,
+    required String finalName,
+  }) async {
+    if (!mounted) return false;
+    final result = await showDialog<bool>(
+      context: context,
+      builder: (context) {
+        return AlertDialog(
+          backgroundColor: AppTheme.surfaceDark,
+          title: const Text('Filename Already Exists'),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Text(
+                'An export with this filename already exists. The new export will be saved as a versioned file.',
+              ),
+              const SizedBox(height: 12),
+              _ConflictName(label: 'Requested', value: requestedName),
+              _ConflictName(label: 'New file', value: finalName),
+            ],
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context, false),
+              child: const Text('Cancel'),
+            ),
+            ElevatedButton(
+              onPressed: () => Navigator.pop(context, true),
+              child: const Text('Continue'),
+            ),
+          ],
+        );
+      },
+    );
+    return result ?? false;
   }
 
   Future<bool> _showQualityAdvisorDialog(ExportQualityReport report) async {
@@ -525,6 +581,40 @@ class _SectionTitle extends StatelessWidget {
         color: AppTheme.textPrimary,
         fontSize: 14,
         fontWeight: FontWeight.w700,
+      ),
+    );
+  }
+}
+
+class _ConflictName extends StatelessWidget {
+  final String label;
+  final String value;
+
+  const _ConflictName({required this.label, required this.value});
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 8),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          SizedBox(
+            width: 88,
+            child: Text(
+              label,
+              style: const TextStyle(color: AppTheme.textMuted, fontSize: 12),
+            ),
+          ),
+          Expanded(
+            child: Text(
+              value,
+              maxLines: 2,
+              overflow: TextOverflow.ellipsis,
+              style: const TextStyle(color: AppTheme.textSecondary, fontSize: 12),
+            ),
+          ),
+        ],
       ),
     );
   }
