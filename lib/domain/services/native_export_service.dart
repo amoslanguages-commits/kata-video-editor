@@ -14,6 +14,7 @@ import 'package:nle_editor/domain/export/export_filename_versioner.dart';
 import 'package:nle_editor/domain/render_graph/render_graph_service.dart';
 import 'package:nle_editor/domain/services/project_storage_service.dart';
 import 'package:nle_editor/native_bridge/native_bridge_contract.dart';
+import 'package:nle_editor/native_bridge/native_command.dart';
 import 'package:nle_editor/native_bridge/native_export_job.dart';
 
 /// Triggers a native export job and writes a pending record to the
@@ -51,9 +52,11 @@ class NativeExportService {
     };
     final advanced = AdvancedExportSettings.fromMap(mergedSettings);
 
-    final permissionResult =
-        await nativeBridge.checkExportPermissions(settings: mergedSettings);
-    if (!permissionResult.accepted) {
+    final permissionResult = await nativeBridge.checkExportPermissions(
+      settings: mergedSettings,
+    );
+    if (!permissionResult.accepted &&
+        !_isOptionalBridgeMissing(permissionResult, NativeCommandTypes.checkExportPermissions)) {
       throw StateError(permissionResult.message ?? 'Export permissions are not ready.');
     }
 
@@ -65,7 +68,8 @@ class NativeExportService {
         renderGraphJson: renderGraphJson,
         settings: mergedSettings,
       );
-      if (!qaResult.accepted) {
+      if (!qaResult.accepted &&
+          !_isOptionalBridgeMissing(qaResult, NativeCommandTypes.validateExportGraph)) {
         throw StateError(qaResult.message ?? 'Export validation failed.');
       }
     }
@@ -182,6 +186,15 @@ class NativeExportService {
       return directory.path;
     }
     return fallbackExportsPath;
+  }
+
+  bool _isOptionalBridgeMissing(NativeCommandResult result, String commandType) {
+    final text = '${result.errorCode ?? ''} ${result.message ?? ''}'.toLowerCase();
+    return text.contains('not implemented') ||
+        text.contains('missingplugin') ||
+        text.contains('unknown method') ||
+        text.contains('unrecognized') ||
+        text.contains(commandType.toLowerCase());
   }
 
   Future<void> pauseExport({required String jobId}) async {
