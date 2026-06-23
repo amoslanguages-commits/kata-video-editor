@@ -55,10 +55,11 @@ class NativeExportService {
     // Resolve output path
     final folders = await storageService.getProjectFolders(projectId);
     final timestamp = DateTime.now().millisecondsSinceEpoch;
-    final outputPath = p.join(
-      folders.exports,
-      'export_${timestamp}_${jobId.substring(0, 8)}.mp4',
-    );
+    final requestedName = settings['outputFileName']?.toString().trim();
+    final outputFileName = requestedName == null || requestedName.isEmpty
+        ? 'export_${timestamp}_${jobId.substring(0, 8)}.mp4'
+        : requestedName;
+    final outputPath = p.join(folders.exports, outputFileName);
 
     // Fetch project configuration directly from DB
     final project = await database.getProjectById(projectId);
@@ -69,36 +70,40 @@ class NativeExportService {
       ...settings,
       'aspectRatio': aspectRatio,
       'resolution': settings['resolution'] ?? project.targetHeight,
-      'frameRate':  settings['frameRate']  ?? project.targetFrameRate,
+      'frameRate': settings['frameRate'] ?? project.targetFrameRate,
+      'outputFileName': outputFileName,
     });
 
     // Insert pending export record
     await exportRepository.insertExportJob(
       ExportJobsCompanion.insert(
-        id:        jobId,
+        id: jobId,
         projectId: projectId,
-        status:    const Value('running'),
-        progress:  const Value(0),
-        stage:     const Value('Preparing'),
-        settings:  jsonEncode(settings),
+        status: const Value('running'),
+        progress: const Value(0),
+        stage: const Value('Preparing'),
+        settings: jsonEncode({
+          ...settings,
+          'outputFileName': outputFileName,
+        }),
       ),
     );
 
     // Submit to native engine
     final result = await nativeBridge.startExportJob(
-      projectId:       projectId,
-      jobId:           jobId,
+      projectId: projectId,
+      jobId: jobId,
       renderGraphJson: renderGraphJson,
-      outputPath:      outputPath,
-      profile:         profile.toMap(),
+      outputPath: outputPath,
+      profile: profile.toMap(),
     );
 
     if (!result.accepted) {
       await exportRepository.updateExportJob(
         jobId,
         ExportJobsCompanion(
-          status:       const Value('failed'),
-          stage:        const Value('Failed'),
+          status: const Value('failed'),
+          stage: const Value('Failed'),
           errorMessage: Value(result.message ?? 'Export rejected by native engine.'),
         ),
       );
