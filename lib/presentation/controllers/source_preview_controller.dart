@@ -8,7 +8,6 @@ import 'dart:async';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import 'package:nle_editor/data/database/app_database.dart' as db;
-import 'package:nle_editor/data/database/app_database.dart' as db;
 import 'package:nle_editor/data/repositories/source_insert_repository.dart';
 import 'package:nle_editor/domain/editor_history/editor_action_models.dart';
 import 'package:nle_editor/domain/preview/preview_monitor.dart';
@@ -54,12 +53,18 @@ class SourcePreviewController extends StateNotifier<SourcePreviewState> {
   // ── Asset loading ─────────────────────────────────────────────────────────
 
   Future<void> loadAsset(NleMediaAsset nleAsset) async {
+    // Managed media is copied into the project folder during import.  The source
+    // preview must therefore prefer the project copy, then the original path as
+    // a fallback.  The proxy path stays separate so the native preview layer can
+    // choose it when preferProxy is enabled.
+    final managedPath = nleAsset.projectPath ?? nleAsset.originalPath;
+
     final asset = SourcePreviewAsset(
       id: nleAsset.id,
       projectId: nleAsset.projectId,
       name: nleAsset.displayName,
       assetType: nleAsset.type.name,
-      originalPath: nleAsset.originalPath,
+      originalPath: managedPath,
       proxyPath: nleAsset.proxyPath,
       thumbnailPath: nleAsset.thumbnailPath,
       durationMicros: nleAsset.timecodeInfo.durationMicros,
