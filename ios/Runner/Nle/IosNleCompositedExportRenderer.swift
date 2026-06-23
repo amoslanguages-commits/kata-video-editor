@@ -19,10 +19,11 @@ final class IosNleCompositedExportRenderer {
         outputPath: String
     ) throws -> [String: Any?] {
         let job = try parseJob(projectId: projectId, renderGraphJson: renderGraphJson, outputPath: outputPath)
-        emit(jobId: jobId, projectId: projectId, type: IosNleEventType.exportStarted, payload: ["stage": "Preparing compositor", "progress": NSNumber(value: 0), "preferProxy": NSNumber(value: job.preferProxy)])
+        emit(jobId: jobId, projectId: projectId, type: IosNleEventType.exportStarted, payload: ["stage": "Preparing compositor", "progress": NSNumber(value: 0), "preferProxy": NSNumber(value: job.preferProxy), "audioMixdown": NSNumber(value: job.hasAudioMix)])
 
         let composition = AVMutableComposition()
         var layerInstructions: [AVMutableVideoCompositionLayerInstruction] = []
+        var audioMixParameters: [AVMutableAudioMixInputParameters] = []
 
         for clip in job.videoClips {
             let asset = AVAsset(url: clip.assetUrl)
@@ -58,6 +59,7 @@ final class IosNleCompositedExportRenderer {
                 if sourceDurationMicros != timelineDurationMicros {
                     audioTrack.scaleTimeRange(CMTimeRange(start: timelineStart, duration: sourceRange.duration), toDuration: timelineDuration)
                 }
+                audioMixParameters.append(makeAudioMixParameters(clip: clip, audioTrack: audioTrack))
             }
         }
 
@@ -71,6 +73,9 @@ final class IosNleCompositedExportRenderer {
         videoComposition.instructions = [videoInstruction]
         attachOverlayLayers(videoComposition: videoComposition, job: job)
 
+        let audioMix = AVMutableAudioMix()
+        audioMix.inputParameters = audioMixParameters
+
         let outputUrl = URL(fileURLWithPath: outputPath)
         try FileManager.default.createDirectory(at: outputUrl.deletingLastPathComponent(), withIntermediateDirectories: true, attributes: nil)
         if FileManager.default.fileExists(atPath: outputPath) { try FileManager.default.removeItem(at: outputUrl) }
@@ -81,6 +86,7 @@ final class IosNleCompositedExportRenderer {
         session.outputURL = outputUrl
         session.outputFileType = .mp4
         session.videoComposition = videoComposition
+        if !audioMixParameters.isEmpty { session.audioMix = audioMix }
         session.shouldOptimizeForNetworkUse = true
 
         lock.lock()
@@ -101,7 +107,7 @@ final class IosNleCompositedExportRenderer {
                 self.emit(jobId: jobId, projectId: projectId, type: IosNleEventType.exportCompleted, payload: [
                     "stage": "Complete",
                     "progress": NSNumber(value: 100),
-                    "result": ["outputPath": outputPath, "fileSize": NSNumber(value: size), "renderer": "ios_avfoundation_compositor_v3_overlays_speed", "preferProxy": NSNumber(value: job.preferProxy)]
+                    "result": ["outputPath": outputPath, "fileSize": NSNumber(value: size), "renderer": "ios_avfoundation_compositor_v4_audio_mix", "preferProxy": NSNumber(value: job.preferProxy), "audioMixdown": NSNumber(value: !audioMixParameters.isEmpty)]
                 ])
             case .cancelled:
                 self.emit(jobId: jobId, projectId: projectId, type: IosNleEventType.exportCancelled, payload: ["stage": "Cancelled"])
@@ -110,7 +116,7 @@ final class IosNleCompositedExportRenderer {
             }
         }
 
-        return ["success": true, "jobId": jobId, "accepted": true, "nativeRenderer": "ios_avfoundation_compositor_v3_overlays_speed", "preferProxy": job.preferProxy]
+        return ["success": true, "jobId": jobId, "accepted": true, "nativeRenderer": "ios_avfoundation_compositor_v4_audio_mix", "preferProxy": job.preferProxy, "audioMixdown": !audioMixParameters.isEmpty]
     }
 
     func cancel(jobId: String) -> [String: Any?] {
@@ -119,6 +125,26 @@ final class IosNleCompositedExportRenderer {
         lock.unlock()
         session?.cancelExport()
         return ["success": true, "jobId": jobId, "cancelled": true]
+    }
+
+    private func makeAudioMixParameters(clip: IosCompositedClip, audioTrack: AVCompositionTrack) -> AVMutableAudioMixInputParameters {
+        let params = AVMutableAudioMixInputParameters(track: audioTrack)
+        let start = CMTime(value: clip.timelineStartMicros, timescale: 1_000_000)
+        let end = CMTime(value: clip.timelineEndMicros, timescale: 1_000_000)
+        let volume = Float(max(0, min(4, clip.volume)))
+        if clip.fadeInMicros > 0 {
+            let fadeEnd = CMTime(value: min(clip.timelineEndMicros, clip.timelineStartMicros + clip.fadeInMicros), timescale: 1_000_000)
+            params.setVolumeRamp(fromStartVolume: 0, toEndVolume: volume, timeRange: CMTimeRange(start: start, end: fadeEnd))
+        } else {
+            params.setVolume(volume, at: start)
+        }
+        if clip.fadeOutMicros > 0 {
+            let fadeStart = CMTime(value: max(clip.timelineStartMicros, clip.timelineEndMicros - clip.fadeOutMicros), timescale: 1_000_000)
+            params.setVolumeRamp(fromStartVolume: volume, toEndVolume: 0, timeRange: CMTimeRange(start: fadeStart, end: end))
+        } else {
+            params.setVolume(volume, at: start)
+        }
+        return params
     }
 
     private func attachOverlayLayers(videoComposition: AVMutableVideoComposition, job: IosCompositedExportJob) {
@@ -248,6 +274,7 @@ final class IosNleCompositedExportRenderer {
             let sourceStart = int64(clip["sourceInMicros"]) ?? int64(clip["sourceStartMicros"]) ?? 0
             let defaultSourceEnd = sourceStart + Int64(Double(end - start) * speed)
             let sourceEnd = max(sourceStart + 1, int64(clip["sourceOutMicros"]) ?? int64(clip["sourceEndMicros"]) ?? defaultSourceEnd)
+            let audio = clip["audio"] as? [String: Any]
             videoClips.append(IosCompositedClip(
                 id: string(clip["id"]) ?? "clip_\(videoClips.count)",
                 assetUrl: url(from: path),
@@ -256,7 +283,10 @@ final class IosNleCompositedExportRenderer {
                 sourceStartMicros: sourceStart,
                 sourceEndMicros: sourceEnd,
                 speed: speed,
-                opacity: double(clip["opacity"]) ?? 1.0
+                opacity: double(clip["opacity"]) ?? 1.0,
+                volume: double(audio?["volume"]) ?? double(clip["volume"]) ?? 1.0,
+                fadeInMicros: int64(audio?["fadeInUs"]) ?? int64(audio?["fadeInMicros"]) ?? int64(clip["fadeInUs"]) ?? 0,
+                fadeOutMicros: int64(audio?["fadeOutUs"]) ?? int64(audio?["fadeOutMicros"]) ?? int64(clip["fadeOutUs"]) ?? 0
             ))
         }
 
@@ -348,6 +378,7 @@ private struct IosCompositedExportJob {
     let videoClips: [IosCompositedClip]
     let overlayClips: [IosOverlayClip]
     let preferProxy: Bool
+    var hasAudioMix: Bool { videoClips.contains { $0.volume != 1.0 || $0.fadeInMicros > 0 || $0.fadeOutMicros > 0 } }
 }
 
 private struct IosCompositedClip {
@@ -359,6 +390,9 @@ private struct IosCompositedClip {
     let sourceEndMicros: Int64
     let speed: Double
     let opacity: Double
+    let volume: Double
+    let fadeInMicros: Int64
+    let fadeOutMicros: Int64
 }
 
 private struct IosOverlayClip {
