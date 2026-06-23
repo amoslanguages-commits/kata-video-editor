@@ -19,7 +19,7 @@ final class IosNleCompositedExportRenderer {
         outputPath: String
     ) throws -> [String: Any?] {
         let job = try parseJob(projectId: projectId, renderGraphJson: renderGraphJson, outputPath: outputPath)
-        emit(jobId: jobId, projectId: projectId, type: IosNleEventType.exportStarted, payload: ["stage": "Preparing compositor", "progress": NSNumber(value: 0)])
+        emit(jobId: jobId, projectId: projectId, type: IosNleEventType.exportStarted, payload: ["stage": "Preparing compositor", "progress": NSNumber(value: 0), "preferProxy": NSNumber(value: job.preferProxy)])
 
         let composition = AVMutableComposition()
         var layerInstructions: [AVMutableVideoCompositionLayerInstruction] = []
@@ -101,7 +101,7 @@ final class IosNleCompositedExportRenderer {
                 self.emit(jobId: jobId, projectId: projectId, type: IosNleEventType.exportCompleted, payload: [
                     "stage": "Complete",
                     "progress": NSNumber(value: 100),
-                    "result": ["outputPath": outputPath, "fileSize": NSNumber(value: size), "renderer": "ios_avfoundation_compositor_v3_overlays_speed"]
+                    "result": ["outputPath": outputPath, "fileSize": NSNumber(value: size), "renderer": "ios_avfoundation_compositor_v3_overlays_speed", "preferProxy": NSNumber(value: job.preferProxy)]
                 ])
             case .cancelled:
                 self.emit(jobId: jobId, projectId: projectId, type: IosNleEventType.exportCancelled, payload: ["stage": "Cancelled"])
@@ -110,7 +110,7 @@ final class IosNleCompositedExportRenderer {
             }
         }
 
-        return ["success": true, "jobId": jobId, "accepted": true, "nativeRenderer": "ios_avfoundation_compositor_v3_overlays_speed"]
+        return ["success": true, "jobId": jobId, "accepted": true, "nativeRenderer": "ios_avfoundation_compositor_v3_overlays_speed", "preferProxy": job.preferProxy]
     }
 
     func cancel(jobId: String) -> [String: Any?] {
@@ -185,22 +185,8 @@ final class IosNleCompositedExportRenderer {
         let animation = CAKeyframeAnimation(keyPath: "opacity")
         animation.beginTime = AVCoreAnimationBeginTimeAtZero
         animation.duration = total
-        animation.keyTimes = [
-            NSNumber(value: 0),
-            NSNumber(value: start),
-            NSNumber(value: min(1.0, start + epsilon)),
-            NSNumber(value: end),
-            NSNumber(value: min(1.0, end + epsilon)),
-            NSNumber(value: 1),
-        ]
-        animation.values = [
-            NSNumber(value: 0),
-            NSNumber(value: 0),
-            NSNumber(value: overlay.opacity),
-            NSNumber(value: overlay.opacity),
-            NSNumber(value: 0),
-            NSNumber(value: 0),
-        ]
+        animation.keyTimes = [NSNumber(value: 0), NSNumber(value: start), NSNumber(value: min(1.0, start + epsilon)), NSNumber(value: end), NSNumber(value: min(1.0, end + epsilon)), NSNumber(value: 1)]
+        animation.values = [NSNumber(value: 0), NSNumber(value: 0), NSNumber(value: overlay.opacity), NSNumber(value: overlay.opacity), NSNumber(value: 0), NSNumber(value: 0)]
         animation.isRemovedOnCompletion = false
         layer.add(animation, forKey: "timelineOpacity")
     }
@@ -222,6 +208,8 @@ final class IosNleCompositedExportRenderer {
     private func parseJob(projectId: String, renderGraphJson: String, outputPath: String) throws -> IosCompositedExportJob {
         let root = try parseRoot(renderGraphJson)
         let project = root["project"] as? [String: Any] ?? root
+        let exportHints = root["exportHints"] as? [String: Any] ?? [:]
+        let preferProxy = !bool(exportHints["useOriginalForExport"])
         let assets = array(root["assets"])
         let tracks = array(root["tracks"])
         var clips = array(root["clips"])
@@ -239,18 +227,18 @@ final class IosNleCompositedExportRenderer {
             let type = string(clip["clipType"]) ?? string(clip["type"]) ?? "video"
             if type == "adjustment" { continue }
             if type == "text" {
-                overlayClips.append(parseOverlayClip(clip: clip, kind: "text", asset: nil))
+                overlayClips.append(parseOverlayClip(clip: clip, kind: "text", asset: nil, preferProxy: preferProxy))
                 continue
             }
             guard let assetId = string(clip["assetId"]) ?? string(clip["asset_id"]), let asset = assets.first(where: { string($0["id"]) == assetId }) else {
                 throw NSError(domain: "IosNleCompositedExportRenderer", code: 12, userInfo: [NSLocalizedDescriptionKey: "A composited clip is missing its asset."])
             }
-            let path = string(asset["exportPath"]) ?? string(asset["sourcePath"]) ?? string(asset["originalPath"]) ?? string(asset["path"]) ?? ""
+            let path = resolveAssetPath(asset, preferProxy: preferProxy)
             guard !path.isEmpty else {
                 throw NSError(domain: "IosNleCompositedExportRenderer", code: 13, userInfo: [NSLocalizedDescriptionKey: "A composited asset path is missing."])
             }
             if type == "image" {
-                overlayClips.append(parseOverlayClip(clip: clip, kind: "image", asset: asset))
+                overlayClips.append(parseOverlayClip(clip: clip, kind: "image", asset: asset, preferProxy: preferProxy))
                 continue
             }
             guard type == "video" else { continue }
@@ -276,18 +264,18 @@ final class IosNleCompositedExportRenderer {
             throw NSError(domain: "IosNleCompositedExportRenderer", code: 14, userInfo: [NSLocalizedDescriptionKey: "No video layers found for composited export."])
         }
 
-        return IosCompositedExportJob(projectId: projectId, width: width, height: height, frameRate: frameRate, durationMicros: max(Int64(1), duration), outputPath: outputPath, videoClips: videoClips, overlayClips: overlayClips)
+        return IosCompositedExportJob(projectId: projectId, width: width, height: height, frameRate: frameRate, durationMicros: max(Int64(1), duration), outputPath: outputPath, videoClips: videoClips, overlayClips: overlayClips, preferProxy: preferProxy)
     }
 
-    private func parseOverlayClip(clip: [String: Any], kind: String, asset: [String: Any]?) -> IosOverlayClip {
-        let path = asset.flatMap { string($0["exportPath"]) ?? string($0["sourcePath"]) ?? string($0["originalPath"]) ?? string($0["path"]) }
+    private func parseOverlayClip(clip: [String: Any], kind: String, asset: [String: Any]?, preferProxy: Bool) -> IosOverlayClip {
+        let path = asset.map { resolveAssetPath($0, preferProxy: preferProxy) }
         let start = int64(clip["timelineStartMicros"]) ?? 0
         let end = max(start + 1, int64(clip["timelineEndMicros"]) ?? start + 1)
         let transform = clip["transform"] as? [String: Any]
         return IosOverlayClip(
             id: string(clip["id"]) ?? "overlay_\(kind)",
             kind: kind,
-            assetUrl: path.map { url(from: $0) },
+            assetUrl: path.flatMap { $0.isEmpty ? nil : url(from: $0) },
             text: string(clip["textContent"]) ?? (clip["text"] as? [String: Any]).flatMap { string($0["content"]) },
             timelineStartMicros: start,
             timelineEndMicros: end,
@@ -296,6 +284,12 @@ final class IosNleCompositedExportRenderer {
             scale: max(0.01, double(clip["scale"]) ?? transform.flatMap { double($0["scale"]) } ?? 1),
             opacity: max(0, min(1, double(clip["opacity"]) ?? transform.flatMap { double($0["opacity"]) } ?? 1))
         )
+    }
+
+    private func resolveAssetPath(_ asset: [String: Any], preferProxy: Bool) -> String {
+        let proxy = string(asset["proxyPath"])
+        let original = string(asset["exportPath"]) ?? string(asset["sourcePath"]) ?? string(asset["originalPath"]) ?? string(asset["path"])
+        return preferProxy ? (proxy ?? original ?? "") : (original ?? proxy ?? "")
     }
 
     private func parseRoot(_ json: String) throws -> [String: Any] {
@@ -353,6 +347,7 @@ private struct IosCompositedExportJob {
     let outputPath: String
     let videoClips: [IosCompositedClip]
     let overlayClips: [IosOverlayClip]
+    let preferProxy: Bool
 }
 
 private struct IosCompositedClip {
