@@ -1,3 +1,5 @@
+import 'package:drift/drift.dart';
+
 import 'package:nle_editor/data/database/app_database.dart';
 
 class ExportRepository {
@@ -15,5 +17,33 @@ class ExportRepository {
 
   Future<void> updateExportJob(String jobId, ExportJobsCompanion companion) {
     return _db.updateExportJob(jobId, companion);
+  }
+
+  Future<int> deleteExportJob(String jobId) {
+    return (_db.delete(_db.exportJobs)..where((tbl) => tbl.id.equals(jobId))).go();
+  }
+
+  Future<int> deleteProjectExportsByStatus({
+    required String projectId,
+    required List<String> statuses,
+  }) {
+    if (statuses.isEmpty) return Future.value(0);
+    return (_db.delete(_db.exportJobs)
+          ..where((tbl) => tbl.projectId.equals(projectId) & tbl.status.isIn(statuses)))
+        .go();
+  }
+
+  Future<int> deleteCompletedExports(String projectId) {
+    return deleteProjectExportsByStatus(
+      projectId: projectId,
+      statuses: const ['completed', 'done', 'success'],
+    );
+  }
+
+  Future<int> deleteFailedExports(String projectId) {
+    return deleteProjectExportsByStatus(
+      projectId: projectId,
+      statuses: const ['failed', 'error', 'cancelled', 'canceled'],
+    );
   }
 }
