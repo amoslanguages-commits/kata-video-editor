@@ -84,7 +84,7 @@ class ExportPresetStoreService {
     final current = await loadCustomPresets(projectId);
     final index = current.indexWhere((item) => item.id == presetId);
     if (index < 0) return;
-    final target = (index + direction).clamp(0, current.length - 1);
+    final target = (index + direction).clamp(0, current.length - 1).toInt();
     if (target == index) return;
 
     final reordered = [...current];
