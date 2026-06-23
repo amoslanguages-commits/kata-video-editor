@@ -321,11 +321,11 @@ class NleNativeProxyRenderer(
                     extractor.advance()
                     continue
                 }
+                buffer.clear()
                 val sampleSize = extractor.readSampleData(buffer, 0)
                 if (sampleSize < 0) break
                 info.set(0, sampleSize, extractor.sampleTime.coerceAtLeast(0L), extractor.sampleFlags)
                 muxer.writeSampleData(muxerTrack, buffer, info)
-                buffer.clear()
                 extractor.advance()
             }
         } finally {
