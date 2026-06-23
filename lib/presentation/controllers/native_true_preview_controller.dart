@@ -1,7 +1,8 @@
 // lib/presentation/controllers/native_true_preview_controller.dart
 //
-// 29F: Program monitor. All service calls carry monitor: PreviewMonitor.program.
-// Events from the source monitor are silently ignored.
+// Legacy program-monitor controller retained for older workspaces.
+// Live mobile/classic editor preview uses realNativePreviewProvider.
+// This controller must never mark playback success before native confirms.
 
 import 'dart:async';
 
@@ -97,33 +98,47 @@ class NativeTruePreviewController
       clearError: true,
     );
 
-    final json = await renderGraphService.buildGraphJsonString(projectId);
+    try {
+      final json = await renderGraphService.buildGraphJsonString(projectId);
 
-    await previewService.prepare(
-      monitor: PreviewMonitor.program,
-      projectId: projectId,
-      renderGraphJson: json,
-      qualityMode: qualityMode,
-      preferProxy: true,
-      maxPreviewWidth: 1280,
-      maxPreviewHeight: 720,
-    );
+      await previewService.prepare(
+        monitor: PreviewMonitor.program,
+        projectId: projectId,
+        renderGraphJson: json,
+        qualityMode: qualityMode,
+        preferProxy: true,
+        maxPreviewWidth: 1280,
+        maxPreviewHeight: 720,
+      );
+    } catch (error) {
+      state = state.copyWith(
+        status: TruePreviewUiStatus.error,
+        errorMessage: error.toString(),
+      );
+    }
   }
 
   Future<void> refreshGraphAndRender({
     required int timelineTimeMicros,
   }) async {
-    final json = await renderGraphService.buildGraphJsonString(projectId);
+    try {
+      final json = await renderGraphService.buildGraphJsonString(projectId);
 
-    await previewService.prepare(
-      monitor: PreviewMonitor.program,
-      projectId: projectId,
-      renderGraphJson: json,
-      qualityMode: NativePreviewQualityMode.auto,
-      preferProxy: true,
-    );
+      await previewService.prepare(
+        monitor: PreviewMonitor.program,
+        projectId: projectId,
+        renderGraphJson: json,
+        qualityMode: NativePreviewQualityMode.auto,
+        preferProxy: true,
+      );
 
-    await renderFrame(timelineTimeMicros);
+      await renderFrame(timelineTimeMicros);
+    } catch (error) {
+      state = state.copyWith(
+        status: TruePreviewUiStatus.error,
+        errorMessage: error.toString(),
+      );
+    }
   }
 
   Future<void> renderFrame(int timelineTimeMicros) {
@@ -134,22 +149,42 @@ class NativeTruePreviewController
   }
 
   Future<void> playFrom(int timelineTimeMicros) async {
-    state = state.copyWith(status: TruePreviewUiStatus.playing);
-
-    await previewService.play(
-      monitor: PreviewMonitor.program,
-      fromTimelineTimeMicros: timelineTimeMicros,
-    );
+    try {
+      await previewService.play(
+        monitor: PreviewMonitor.program,
+        fromTimelineTimeMicros: timelineTimeMicros,
+      );
+      state = state.copyWith(status: TruePreviewUiStatus.playing, clearError: true);
+    } catch (error) {
+      state = state.copyWith(
+        status: TruePreviewUiStatus.error,
+        errorMessage: error.toString(),
+      );
+    }
   }
 
   Future<void> pause() async {
-    state = state.copyWith(status: TruePreviewUiStatus.paused);
-    await previewService.pause(monitor: PreviewMonitor.program);
+    try {
+      await previewService.pause(monitor: PreviewMonitor.program);
+      state = state.copyWith(status: TruePreviewUiStatus.paused, clearError: true);
+    } catch (error) {
+      state = state.copyWith(
+        status: TruePreviewUiStatus.error,
+        errorMessage: error.toString(),
+      );
+    }
   }
 
   Future<void> stop() async {
-    state = state.copyWith(status: TruePreviewUiStatus.paused);
-    await previewService.stop(monitor: PreviewMonitor.program);
+    try {
+      await previewService.stop(monitor: PreviewMonitor.program);
+      state = state.copyWith(status: TruePreviewUiStatus.paused, clearError: true);
+    } catch (error) {
+      state = state.copyWith(
+        status: TruePreviewUiStatus.error,
+        errorMessage: error.toString(),
+      );
+    }
   }
 
   @override
