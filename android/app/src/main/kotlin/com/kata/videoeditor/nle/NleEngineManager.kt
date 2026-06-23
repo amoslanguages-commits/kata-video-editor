@@ -1,12 +1,6 @@
 package com.kata.videoeditor.nle
 
 import android.content.Context
-import android.graphics.Color
-import com.nle.editor.NleEngineSession
-import com.nle.editor.NleNativeEventEmitter
-import com.nle.editor.audio.NleAudioEngine
-import com.nle.editor.audio.NleAudioEngineState
-import com.nle.editor.audio.NleWaveformExtractor
 import com.nle.editor.preview.NleFlutterPreviewTextureManager
 import com.nle.editor.preview.NlePreviewBridgeEventSink
 import com.nle.editor.preview.NlePreviewConfig
@@ -37,7 +31,6 @@ class NleEngineManager(
     }
 
     fun dispose(): Map<String, Any?> {
-        sessions.values.forEach { it.release() }
         sessions.clear()
         truePreviewManagers.values.forEach { it.release() }
         truePreviewManagers.clear()
@@ -55,10 +48,9 @@ class NleEngineManager(
         requireInit()
         val graph = parser.parse(renderGraphJson)
         val session = sessions.getOrPut(projectId) {
-            NleEngineSession(projectId = projectId)
+            NleEngineSession(projectId = projectId, initialRenderGraphJson = renderGraphJson)
         }
-        session.loadGraph(graph)
-        session.audioEngine = createAudioEngineForSession(session)
+        session.updateGraph(renderGraphJson)
         eventEmitter.emit(
             NleNativeEvent(
                 type = NleNativeEventType.GRAPH_LOADED,
@@ -84,14 +76,14 @@ class NleEngineManager(
         val graph = parser.parse(renderGraphJson)
         val session = sessions[projectId]
             ?: throw IllegalStateException(NleNativeErrorCode.SESSION_NOT_FOUND)
-        session.loadGraph(graph)
+        session.updateGraph(renderGraphJson)
         eventEmitter.emit(
             NleNativeEvent(
                 type = NleNativeEventType.GRAPH_UPDATED,
                 projectId = projectId,
                 sessionId = session.sessionId,
                 commandId = commandId,
-                payload = mapOf("reason" to reason, "durationMicros" to session.durationMicros),
+                payload = mapOf("reason" to reason, "durationMicros" to session.durationMicros, "trackCount" to graph.tracks.size),
             ),
         )
         return mapOf("updated" to true, "durationMicros" to session.durationMicros)
@@ -112,7 +104,6 @@ class NleEngineManager(
         val session = sessions[projectId]
             ?: throw IllegalStateException(NleNativeErrorCode.SESSION_NOT_FOUND)
         session.play()
-        session.audioEngine?.play(fromMicros = session.playheadMicros)
         eventEmitter.emit(
             NleNativeEvent(
                 type = NleNativeEventType.PLAYBACK_STARTED,
@@ -130,7 +121,6 @@ class NleEngineManager(
         val session = sessions[projectId]
             ?: throw IllegalStateException(NleNativeErrorCode.SESSION_NOT_FOUND)
         session.pause()
-        session.audioEngine?.pause()
         eventEmitter.emit(
             NleNativeEvent(
                 type = NleNativeEventType.PLAYBACK_PAUSED,
@@ -147,17 +137,17 @@ class NleEngineManager(
         requireInit()
         val session = sessions[projectId]
             ?: throw IllegalStateException(NleNativeErrorCode.SESSION_NOT_FOUND)
-        val pos = session.seek(positionMicros)
+        session.seek(positionMicros)
         eventEmitter.emit(
             NleNativeEvent(
                 type = NleNativeEventType.SEEK_COMPLETED,
                 projectId = projectId,
                 sessionId = session.sessionId,
                 commandId = commandId,
-                payload = mapOf("playheadMicros" to pos),
+                payload = mapOf("playheadMicros" to session.playheadMicros),
             ),
         )
-        return mapOf("playheadMicros" to pos)
+        return mapOf("playheadMicros" to session.playheadMicros)
     }
 
     fun startJob(projectId: String?, jobId: String, jobType: String, commandId: String?, payload: Map<String, Any?>): Map<String, Any?> {
@@ -197,26 +187,20 @@ class NleEngineManager(
 
     fun getSessionState(projectId: String): Map<String, Any?> {
         requireInit()
-        val session = sessions[projectId]
-            ?: return mapOf("loaded" to false)
-        return mapOf(
-            "loaded" to true,
-            "sessionId" to session.sessionId,
-            "playheadMicros" to session.playheadMicros,
-            "durationMicros" to session.durationMicros,
-            "isPlaying" to session.isPlaying,
-        )
+        return sessions[projectId]?.toMap() ?: mapOf("loaded" to false)
     }
 
     fun setPlaybackRate(projectId: String, rate: Float, commandId: String?): Map<String, Any?> {
         requireInit()
-        return mapOf("rate" to rate)
+        val session = sessions[projectId]
+            ?: throw IllegalStateException(NleNativeErrorCode.SESSION_NOT_FOUND)
+        session.setPlaybackRate(rate)
+        return mapOf("rate" to session.playbackRate)
     }
 
     fun getAudioEngineState(projectId: String): Map<String, Any?> {
         requireInit()
-        val session = sessions[projectId] ?: return NleAudioEngineState().toMap()
-        return (session.audioEngine?.state() ?: NleAudioEngineState()).toMap()
+        return mapOf("initialized" to false, "projectId" to projectId)
     }
 
     fun createPreviewTexture(projectId: String?, width: Int, height: Int, commandId: String?): Map<String, Any?> {
@@ -227,11 +211,7 @@ class NleEngineManager(
                 type = NleNativeEventType.PREVIEW_TEXTURE_CREATED,
                 projectId = projectId,
                 commandId = commandId,
-                payload = mapOf(
-                    "textureId" to texture.id,
-                    "width" to width,
-                    "height" to height,
-                ),
+                payload = mapOf("textureId" to texture.id, "width" to width, "height" to height),
             ),
         )
         return mapOf("textureId" to texture.id, "width" to width, "height" to height)
@@ -251,8 +231,7 @@ class NleEngineManager(
 
     fun renderPreviewPlaceholder(textureId: Long, label: String, playheadMicros: Long, commandId: String?): Map<String, Any?> {
         requireInit()
-        previewTextureManager.renderPlaceholder(textureId, label, playheadMicros)
-        return mapOf("rendered" to true)
+        throw IllegalStateException("Placeholder preview rendering is disabled in full-native mode.")
     }
 
     fun disposePreviewTexture(textureId: Long, commandId: String?): Map<String, Any?> {
@@ -263,66 +242,25 @@ class NleEngineManager(
 
     fun renderGpuPreviewFrame(projectId: String, renderGraphJson: String, timelineTimeMicros: Long, commandId: String?): Map<String, Any?> {
         requireInit()
-        val session = sessions[projectId]
         val rendered = previewTextureManager.renderGpuFrameForProject(
             projectId = projectId,
             renderGraphJson = renderGraphJson,
             timelineTimeMicros = timelineTimeMicros,
             compositorSession = compositorSession,
         )
+        if (rendered == 0) {
+            throw IllegalStateException("No native GPU preview surface rendered a frame.")
+        }
         eventEmitter.emit(
             NleNativeEvent(
                 type = NleNativeEventType.GPU_PREVIEW_FRAME_RENDERED,
                 projectId = projectId,
-                sessionId = session?.sessionId,
+                sessionId = sessions[projectId]?.sessionId,
                 commandId = commandId,
-                payload = mapOf(
-                    "timelineTimeMicros" to timelineTimeMicros,
-                    "surfacesRendered" to rendered,
-                ),
+                payload = mapOf("timelineTimeMicros" to timelineTimeMicros, "surfacesRendered" to rendered),
             ),
         )
-        return mapOf("success" to (rendered > 0), "surfacesRendered" to rendered)
-    }
-
-    private fun createAudioEngineForSession(session: NleEngineSession): NleAudioEngine {
-        return NleAudioEngine(
-            durationMicros = session.durationMicros,
-            onPlayheadTick = { micros, playing ->
-                session.updatePlayhead(micros, playing)
-                eventEmitter.emit(
-                    NleNativeEvent(
-                        type = NleNativeEventType.PLAYHEAD_CHANGED,
-                        projectId = session.projectId,
-                        sessionId = session.sessionId,
-                        payload = mapOf("playheadMicros" to micros, "isPlaying" to playing),
-                    ),
-                )
-            },
-            onPlaybackEnded = {
-                session.pause()
-                eventEmitter.emit(
-                    NleNativeEvent(
-                        type = NleNativeEventType.PLAYBACK_ENDED,
-                        projectId = session.projectId,
-                        sessionId = session.sessionId,
-                        payload = mapOf("playheadMicros" to session.playheadMicros),
-                    ),
-                )
-            },
-        ).also { engine ->
-            val ok = engine.initialize()
-            if (!ok) {
-                eventEmitter.emitError(
-                    projectId = session.projectId,
-                    sessionId = session.sessionId,
-                    commandId = null,
-                    code = NleNativeErrorCode.AUDIO_ENGINE_INIT_FAILED,
-                    message = "The native audio engine could not start.",
-                    technicalMessage = "AudioTrack.initialize() returned false for project ${session.projectId}",
-                )
-            }
-        }
+        return mapOf("surfacesRendered" to rendered)
     }
 
     private fun requireInit() {
