@@ -5,7 +5,7 @@ import 'package:nle_editor/core/theme/app_theme.dart';
 import 'package:nle_editor/domain/export/advanced_export_settings.dart';
 import 'package:nle_editor/presentation/providers/advanced_export_settings_provider.dart';
 
-class ExportAdvancedSettingsCard extends ConsumerWidget {
+class ExportAdvancedSettingsCard extends ConsumerStatefulWidget {
   final String projectId;
 
   const ExportAdvancedSettingsCard({
@@ -14,10 +14,32 @@ class ExportAdvancedSettingsCard extends ConsumerWidget {
   });
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    final settings = ref.watch(advancedExportSettingsProvider(projectId));
+  ConsumerState<ExportAdvancedSettingsCard> createState() =>
+      _ExportAdvancedSettingsCardState();
+}
+
+class _ExportAdvancedSettingsCardState
+    extends ConsumerState<ExportAdvancedSettingsCard> {
+  bool _loaded = false;
+
+  @override
+  void initState() {
+    super.initState();
+    Future.microtask(_loadSavedSettings);
+  }
+
+  Future<void> _loadSavedSettings() async {
+    final saved = await loadAdvancedExportSettings(widget.projectId);
+    if (!mounted) return;
+    ref.read(advancedExportSettingsProvider(widget.projectId).notifier).state = saved;
+    setState(() => _loaded = true);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final settings = ref.watch(advancedExportSettingsProvider(widget.projectId));
     void set(String key, Object? value) {
-      updateAdvancedExportSetting(ref, projectId, key, value);
+      updateAdvancedExportSetting(ref, widget.projectId, key, value);
     }
 
     return Container(
@@ -30,17 +52,25 @@ class ExportAdvancedSettingsCard extends ConsumerWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          const Row(
+          Row(
             children: [
-              Icon(Icons.tune_rounded, color: AppTheme.accentPrimary),
-              SizedBox(width: 8),
-              Text(
-                'Advanced Export Settings',
-                style: TextStyle(
-                  color: AppTheme.textPrimary,
-                  fontWeight: FontWeight.w700,
+              const Icon(Icons.tune_rounded, color: AppTheme.accentPrimary),
+              const SizedBox(width: 8),
+              const Expanded(
+                child: Text(
+                  'Advanced Export Settings',
+                  style: TextStyle(
+                    color: AppTheme.textPrimary,
+                    fontWeight: FontWeight.w700,
+                  ),
                 ),
               ),
+              if (!_loaded)
+                const SizedBox(
+                  width: 16,
+                  height: 16,
+                  child: CircularProgressIndicator(strokeWidth: 2),
+                ),
             ],
           ),
           const SizedBox(height: 12),
@@ -59,6 +89,9 @@ class ExportAdvancedSettingsCard extends ConsumerWidget {
             const SizedBox(height: 8),
             TextField(
               decoration: const InputDecoration(labelText: 'Custom folder path'),
+              controller: TextEditingController(
+                text: settings['customDirectoryPath']?.toString() ?? '',
+              ),
               onChanged: (value) => set('customDirectoryPath', value),
             ),
           ],
@@ -139,11 +172,17 @@ class ExportAdvancedSettingsCard extends ConsumerWidget {
           const SizedBox(height: 8),
           TextField(
             decoration: const InputDecoration(labelText: 'Metadata title'),
+            controller: TextEditingController(
+              text: settings['metadataTitle']?.toString() ?? '',
+            ),
             onChanged: (value) => set('metadataTitle', value),
           ),
           const SizedBox(height: 8),
           TextField(
             decoration: const InputDecoration(labelText: 'Metadata creator'),
+            controller: TextEditingController(
+              text: settings['metadataCreator']?.toString() ?? '',
+            ),
             onChanged: (value) => set('metadataCreator', value),
           ),
           _Switch(
