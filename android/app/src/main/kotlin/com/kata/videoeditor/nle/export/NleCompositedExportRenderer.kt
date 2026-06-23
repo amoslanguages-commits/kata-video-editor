@@ -5,11 +5,17 @@ import android.media.MediaCodecInfo
 import android.media.MediaExtractor
 import android.media.MediaFormat
 import android.media.MediaMuxer
+import com.kata.videoeditor.nle.NleContextHolder
+import com.nle.editor.color.NleDeviceColorCapabilityScanner
+import com.nle.editor.colorpipeline.NleColorPipelineFallbackResolver
+import com.nle.editor.colorpipeline.NleColorPipelineParser
+import com.nle.editor.colorpipeline.NleGpuPipelineMode
 import com.nle.editor.compositor.NleDefaultLayerTextureProvider
 import com.nle.editor.compositor.NleMultilayerCompositor
 import com.nle.editor.preview.NlePreviewEglRenderer
 import com.nle.editor.preview.NlePreviewVideoTextureSource
 import com.nle.editor.rendergraph.NleRenderGraphParser
+import org.json.JSONObject
 import java.io.File
 import java.nio.ByteBuffer
 import kotlin.math.max
@@ -19,6 +25,7 @@ class NleCompositedExportRenderer(
 ) {
     private val graphParser = NleRenderGraphParser()
     private val audioPlanner = NleCompositedAudioTrackPlanner()
+    private val colorFallbackResolver = NleColorPipelineFallbackResolver()
 
     fun render(
         jobId: String,
@@ -28,6 +35,15 @@ class NleCompositedExportRenderer(
         token: NleExportCancellationToken,
     ) {
         val graph = graphParser.parse(renderGraphJson)
+        val requestedColorPipeline = NleColorPipelineParser.parse(JSONObject(renderGraphJson))
+        val colorCapability = NleDeviceColorCapabilityScanner(
+            NleContextHolder.context ?: throw IllegalStateException("Android app context is required for export color pipeline.")
+        ).scan()
+        val resolvedColorPipeline = colorFallbackResolver.resolve(
+            requested = requestedColorPipeline,
+            capability = colorCapability,
+            forExport = true,
+        )
         val audioTracks = audioPlanner.plan(graph)
         val width = profileMap.exportInt("width")
             ?: profileMap.exportInt("targetWidth")
@@ -96,6 +112,13 @@ class NleCompositedExportRenderer(
 
             val activeCompositor = NleMultilayerCompositor(activeTextureProvider)
             compositor = activeCompositor
+            activeCompositor.prepareColorPipeline(
+                width = width,
+                height = height,
+                mode = NleGpuPipelineMode.EXPORT,
+                requestedQuality = resolvedColorPipeline.quality,
+                deviceCapability = colorCapability,
+            )
 
             var frameIndex = 0L
             while (frameIndex < totalFrames) {
@@ -107,7 +130,7 @@ class NleCompositedExportRenderer(
                     timelineTimeUs = timelineUs,
                     outputWidth = width,
                     outputHeight = height,
-                    resolvedColorPipeline = null,
+                    resolvedColorPipeline = resolvedColorPipeline,
                 )
                 android.opengl.EGLES20.glFinish()
                 activeEgl.setPresentationTimeNanos(timelineUs * 1000L)
