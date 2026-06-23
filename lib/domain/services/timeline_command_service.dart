@@ -6,6 +6,7 @@ import 'package:uuid/uuid.dart';
 import 'package:nle_editor/core/constants/app_constants.dart';
 import 'package:nle_editor/data/database/app_database.dart';
 import 'package:nle_editor/data/repositories/asset_repository.dart';
+import 'package:nle_editor/data/repositories/media_asset_repository.dart';
 import 'package:nle_editor/data/repositories/project_repository.dart';
 import 'package:nle_editor/data/repositories/timeline_repository.dart';
 
@@ -13,12 +14,14 @@ class TimelineCommandService {
   final TimelineRepository _timelineRepository;
   final AssetRepository _assetRepository;
   final ProjectRepository _projectRepository;
+  final MediaAssetRepository? _mediaAssetRepository;
 
   TimelineCommandService(
     this._timelineRepository,
     this._assetRepository,
-    this._projectRepository,
-  );
+    this._projectRepository, [
+    this._mediaAssetRepository,
+  ]);
 
   static const _uuid = Uuid();
 
@@ -29,32 +32,89 @@ class TimelineCommandService {
     required String assetId,
     required int timelineStartMicros,
   }) async {
-    final asset = await _assetRepository.getAsset(assetId);
-    if (asset == null) return null;
+    final legacyAsset = await _assetRepository.getAsset(assetId);
 
-    final trackType = switch (asset.fileType) {
-      'audio' => 'audio',
-      'image' => 'overlay',
-      _ => 'video',
-    };
+    if (legacyAsset != null) {
+      final trackType = switch (legacyAsset.fileType) {
+        'audio' => 'audio',
+        'image' => 'overlay',
+        _ => 'video',
+      };
+
+      final track =
+          await _timelineRepository.getFirstTrackByType(projectId, trackType);
+      if (track == null) return null;
+
+      final clipId = _uuid.v4();
+      final duration = legacyAsset.durationMicros ??
+          (legacyAsset.fileType == 'image'
+              ? AppConstants.defaultImageDurationMicros
+              : AppConstants.defaultTextDurationMicros);
+
+      await _timelineRepository.insertClip(
+        ClipsCompanion.insert(
+          id: clipId,
+          projectId: projectId,
+          trackId: track.id,
+          assetId: Value(legacyAsset.id),
+          clipType: Value(legacyAsset.fileType == 'image'
+              ? 'image'
+              : legacyAsset.fileType),
+          timelineStartMicros: Value(timelineStartMicros),
+          timelineEndMicros: Value(timelineStartMicros + duration),
+          sourceInMicros: const Value(0),
+          sourceOutMicros: Value(duration),
+          sortOrder: Value(DateTime.now().microsecondsSinceEpoch),
+        ),
+      );
+
+      final created = await _timelineRepository.getClip(clipId);
+      if (created != null) {
+        await _recordCommand(
+          projectId: projectId,
+          actionType: 'add_clip',
+          description: 'Add clip',
+          payload: {'after': _clipToJson(created)},
+        );
+      }
+
+      await _refreshProjectDuration(projectId);
+      return clipId;
+    }
+
+    final mediaAsset = await _mediaAssetRepository?.getAsset(assetId);
+    if (mediaAsset == null) return null;
+
+    final trackType = mediaAsset.isAudio
+        ? 'audio'
+        : mediaAsset.isImage
+            ? 'overlay'
+            : 'video';
 
     final track =
         await _timelineRepository.getFirstTrackByType(projectId, trackType);
     if (track == null) return null;
 
     final clipId = _uuid.v4();
-    final duration = asset.durationMicros ??
-        (asset.fileType == 'image'
+    final duration = mediaAsset.durationMicros > 0
+        ? mediaAsset.durationMicros
+        : mediaAsset.isImage
             ? AppConstants.defaultImageDurationMicros
-            : AppConstants.defaultTextDurationMicros);
+            : AppConstants.defaultTextDurationMicros;
+
+    final clipType = mediaAsset.isImage
+        ? 'image'
+        : mediaAsset.isAudio
+            ? 'audio'
+            : 'video';
 
     await _timelineRepository.insertClip(
       ClipsCompanion.insert(
         id: clipId,
         projectId: projectId,
         trackId: track.id,
-        assetId: Value(asset.id),
-        clipType: Value(asset.fileType == 'image' ? 'image' : asset.fileType),
+        assetId: Value(mediaAsset.id),
+        clipType: Value(clipType),
         timelineStartMicros: Value(timelineStartMicros),
         timelineEndMicros: Value(timelineStartMicros + duration),
         sourceInMicros: const Value(0),
@@ -63,12 +123,17 @@ class TimelineCommandService {
       ),
     );
 
+    await _mediaAssetRepository?.setUsageState(
+      assetId: mediaAsset.id,
+      usageState: mediaAsset.usageState,
+    );
+
     final created = await _timelineRepository.getClip(clipId);
     if (created != null) {
       await _recordCommand(
         projectId: projectId,
         actionType: 'add_clip',
-        description: 'Add clip',
+        description: 'Add managed media clip',
         payload: {'after': _clipToJson(created)},
       );
     }
