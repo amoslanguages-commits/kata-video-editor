@@ -11,6 +11,7 @@ class NleExportQueueSummary {
   final int completedJobs;
   final int failedJobs;
   final int cancelledJobs;
+  final int pausedJobs;
   final ExportJob? latestJob;
 
   const NleExportQueueSummary({
@@ -19,6 +20,7 @@ class NleExportQueueSummary {
     required this.completedJobs,
     required this.failedJobs,
     required this.cancelledJobs,
+    required this.pausedJobs,
     required this.latestJob,
   });
 
@@ -27,6 +29,7 @@ class NleExportQueueSummary {
     var completed = 0;
     var failed = 0;
     var cancelled = 0;
+    var paused = 0;
 
     for (final job in jobs) {
       final status = job.status.toLowerCase();
@@ -38,6 +41,8 @@ class NleExportQueueSummary {
         failed++;
       } else if (status == 'cancelled' || status == 'canceled') {
         cancelled++;
+      } else if (status == 'paused') {
+        paused++;
       }
     }
 
@@ -50,11 +55,12 @@ class NleExportQueueSummary {
       completedJobs: completed,
       failedJobs: failed,
       cancelledJobs: cancelled,
+      pausedJobs: paused,
       latestJob: sorted.isEmpty ? null : sorted.first,
     );
   }
 
-  bool get hasActiveJobs => runningJobs > 0;
+  bool get hasActiveJobs => runningJobs > 0 || pausedJobs > 0;
 }
 
 class NleExportJobViewModel {
@@ -67,6 +73,8 @@ class NleExportJobViewModel {
   });
 
   String get presetName {
+    final friendly = settings['presetName']?.toString().trim();
+    if (friendly != null && friendly.isNotEmpty) return friendly;
     final raw = settings['preset']?.toString().trim();
     if (raw == null || raw.isEmpty) return 'Custom';
     return raw
@@ -77,7 +85,9 @@ class NleExportJobViewModel {
   }
 
   String get resolutionLabel {
+    final width = settings['width'];
     final resolution = settings['resolution'];
+    if (width != null && resolution != null) return '${width}x$resolution';
     if (resolution == null) return 'Project resolution';
     return '${resolution}p';
   }
@@ -92,6 +102,8 @@ class NleExportJobViewModel {
     final status = job.status.toLowerCase();
     return status == 'running' || status == 'pending' || status == 'queued';
   }
+
+  bool get isPaused => job.status.toLowerCase() == 'paused';
 
   bool get isFailed {
     final status = job.status.toLowerCase();
