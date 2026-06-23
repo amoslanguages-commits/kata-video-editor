@@ -11,6 +11,40 @@ class ExportRepository {
     return _db.watchProjectExports(projectId);
   }
 
+  Future<List<ExportJob>> getProjectExports(String projectId) {
+    return (_db.select(_db.exportJobs)
+          ..where((tbl) => tbl.projectId.equals(projectId))
+          ..orderBy([(tbl) => OrderingTerm.desc(tbl.createdAt)]))
+        .get();
+  }
+
+  Future<ExportJob?> getExportJob(String jobId) {
+    return (_db.select(_db.exportJobs)..where((tbl) => tbl.id.equals(jobId)))
+        .getSingleOrNull();
+  }
+
+  Future<List<ExportJob>> getActiveProjectExports(String projectId) {
+    return (_db.select(_db.exportJobs)
+          ..where((tbl) =>
+              tbl.projectId.equals(projectId) &
+              tbl.status.isIn(const ['pending', 'running', 'paused']))
+          ..orderBy([(tbl) => OrderingTerm.asc(tbl.createdAt)]))
+        .get();
+  }
+
+  Future<List<ExportJob>> getStaleActiveExports({
+    required String projectId,
+    required DateTime olderThan,
+  }) {
+    return (_db.select(_db.exportJobs)
+          ..where((tbl) =>
+              tbl.projectId.equals(projectId) &
+              tbl.status.isIn(const ['pending', 'running', 'paused']) &
+              tbl.createdAt.isSmallerThanValue(olderThan))
+          ..orderBy([(tbl) => OrderingTerm.asc(tbl.createdAt)]))
+        .get();
+  }
+
   Future<void> insertExportJob(ExportJobsCompanion job) {
     return _db.insertExportJob(job);
   }
