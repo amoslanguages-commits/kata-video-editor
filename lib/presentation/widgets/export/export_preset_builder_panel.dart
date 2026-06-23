@@ -102,7 +102,8 @@ class _ExportPresetBuilderPanelState
                     removeWatermark: _removeWatermark,
                     sizePreviewLabel: _estimateSizeLabel(snapshot.data?.durationMicros),
                     watermarkLabel: _watermarkLabel(),
-                    draftFileName: _buildOutputFileName(draftPreset, projectName, pattern: _filenamePattern),
+                    draftFileName:
+                        _buildOutputFileName(draftPreset, projectName, pattern: _filenamePattern),
                     onFrameRateChanged: (value) => setState(() => _frameRate = value),
                     onFormatChanged: (value) => setState(() => _format = value),
                     onPlatformChanged: (value) => setState(() => _platform = value),
@@ -141,6 +142,9 @@ class _ExportPresetBuilderPanelState
                         onEdit: () => _loadPresetForEdit(preset),
                         onClone: () => _clonePreset(preset),
                         onTest: () => _startTestExportFoundation(preset),
+                        onFavorite: () => _toggleFavorite(preset),
+                        onMoveUp: () => _movePreset(preset, -1),
+                        onMoveDown: () => _movePreset(preset, 1),
                         onRemove: () => _confirmRemovePreset(preset),
                       ),
                     ),
@@ -157,7 +161,9 @@ class _ExportPresetBuilderPanelState
     final now = DateTime.now();
     return NleExportPresetSpec(
       id: _editingPresetId ?? 'draft',
-      name: _nameController.text.trim().isEmpty ? 'Draft Preset' : _nameController.text.trim(),
+      name: _nameController.text.trim().isEmpty
+          ? 'Draft Preset'
+          : _nameController.text.trim(),
       description: 'Draft export preset.',
       platform: _platform,
       width: int.tryParse(_widthController.text.trim()) ?? 1080,
@@ -214,7 +220,11 @@ class _ExportPresetBuilderPanelState
       ref.invalidate(projectExportPresetsProvider(widget.projectId));
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text(_editingPresetId == null ? 'Export preset saved.' : 'Export preset updated.')),
+          SnackBar(
+            content: Text(_editingPresetId == null
+                ? 'Export preset saved.'
+                : 'Export preset updated.'),
+          ),
         );
       }
       _clearEditMode();
@@ -231,6 +241,7 @@ class _ExportPresetBuilderPanelState
       name: clonedName,
       description: 'Custom copy of ${source.name}.',
       isBuiltIn: false,
+      isFavorite: false,
       createdAt: now,
       updatedAt: now,
     );
@@ -279,6 +290,24 @@ class _ExportPresetBuilderPanelState
     );
   }
 
+  Future<void> _toggleFavorite(NleExportPresetSpec preset) async {
+    await ref.read(exportPresetStoreServiceProvider).setFavorite(
+          projectId: widget.projectId,
+          presetId: preset.id,
+          isFavorite: !preset.isFavorite,
+        );
+    ref.invalidate(projectExportPresetsProvider(widget.projectId));
+  }
+
+  Future<void> _movePreset(NleExportPresetSpec preset, int direction) async {
+    await ref.read(exportPresetStoreServiceProvider).moveCustomPreset(
+          projectId: widget.projectId,
+          presetId: preset.id,
+          direction: direction,
+        );
+    ref.invalidate(projectExportPresetsProvider(widget.projectId));
+  }
+
   void _clearEditMode() {
     if (!mounted) return;
     setState(() {
@@ -319,8 +348,11 @@ class _ExportPresetBuilderPanelState
   }
 
   Future<void> _exportCustomPresetsJson() async {
-    final custom = await ref.read(exportPresetStoreServiceProvider).loadCustomPresets(widget.projectId);
-    final text = const JsonEncoder.withIndent('  ').convert(custom.map((item) => item.toJson()).toList());
+    final custom = await ref
+        .read(exportPresetStoreServiceProvider)
+        .loadCustomPresets(widget.projectId);
+    final text = const JsonEncoder.withIndent('  ')
+        .convert(custom.map((item) => item.toJson()).toList());
     await Clipboard.setData(ClipboardData(text: text));
     if (mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -382,7 +414,10 @@ class _ExportPresetBuilderPanelState
     } catch (error) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Import failed: $error'), backgroundColor: AppTheme.error),
+          SnackBar(
+            content: Text('Import failed: $error'),
+            backgroundColor: AppTheme.error,
+          ),
         );
       }
     }
@@ -390,13 +425,19 @@ class _ExportPresetBuilderPanelState
 
   void _startTestExportFoundation(NleExportPresetSpec preset) {
     ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text('5-second test export ready for ${preset.name}. Native trim hook can connect here.')),
+      SnackBar(
+        content: Text(
+          '5-second test export ready for ${preset.name}. Native trim hook can connect here.',
+        ),
+      ),
     );
   }
 
   String _estimateSizeLabel(int? durationMicros) {
     final bitrate = int.tryParse(_bitrateController.text.trim()) ?? 0;
-    if (durationMicros == null || durationMicros <= 0 || bitrate <= 0) return 'Size estimate unavailable';
+    if (durationMicros == null || durationMicros <= 0 || bitrate <= 0) {
+      return 'Size estimate unavailable';
+    }
     final seconds = durationMicros / 1000000.0;
     final bytes = seconds * bitrate * 1000000 / 8 * 1.18;
     const gb = 1024 * 1024 * 1024;
@@ -456,8 +497,11 @@ class _ExportPresetBuilderPanelState
     }
 
     final projectName = project?.name ?? 'Project';
-    final previewFileName = _buildOutputFileName(preset, projectName, pattern: _filenamePattern);
-    final folders = await ref.read(projectStorageServiceProvider).getProjectFolders(widget.projectId);
+    final previewFileName =
+        _buildOutputFileName(preset, projectName, pattern: _filenamePattern);
+    final folders = await ref
+        .read(projectStorageServiceProvider)
+        .getProjectFolders(widget.projectId);
     final finalOutputPath = await const ExportFilenameVersioner().uniquePath(
       directoryPath: folders.exports,
       fileName: previewFileName,
@@ -471,6 +515,17 @@ class _ExportPresetBuilderPanelState
       );
       if (!shouldContinue) return;
     }
+
+    final validationOk = await _showValidationReportDialog(
+      preset: preset,
+      outputFileName: finalOutputFileName,
+      sizeLabel: _estimateSizeLabel(project?.durationMicros),
+      qualityReport: qualityReport,
+      watermarkLabel: preset.removeWatermark
+          ? 'Watermark-free export requested.'
+          : 'Watermark will remain.',
+    );
+    if (!validationOk) return;
 
     final settings = {
       ...preset.exportSettings,
@@ -518,6 +573,53 @@ class _ExportPresetBuilderPanelState
       extension: preset.format,
       version: (DateTime.now().millisecondsSinceEpoch % 99) + 1,
     );
+  }
+
+  Future<bool> _showValidationReportDialog({
+    required NleExportPresetSpec preset,
+    required String outputFileName,
+    required String sizeLabel,
+    required ExportQualityReport qualityReport,
+    required String watermarkLabel,
+  }) async {
+    if (!mounted) return false;
+    final result = await showDialog<bool>(
+      context: context,
+      builder: (context) {
+        return AlertDialog(
+          backgroundColor: AppTheme.surfaceDark,
+          title: const Text('Export Validation Report'),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const _ValidationRow(label: 'Timeline', value: 'Ready'),
+              _ValidationRow(label: 'Preset', value: preset.name),
+              _ValidationRow(label: 'Resolution', value: preset.resolutionLabel),
+              _ValidationRow(label: 'Filename', value: outputFileName),
+              _ValidationRow(label: 'Size', value: sizeLabel),
+              _ValidationRow(label: 'Watermark', value: watermarkLabel),
+              _ValidationRow(
+                label: 'Quality',
+                value: qualityReport.issues.isEmpty
+                    ? 'No blocking warnings'
+                    : '${qualityReport.issues.length} warning(s) reviewed',
+              ),
+            ],
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context, false),
+              child: const Text('Cancel'),
+            ),
+            ElevatedButton(
+              onPressed: () => Navigator.pop(context, true),
+              child: const Text('Start Export'),
+            ),
+          ],
+        );
+      },
+    );
+    return result ?? false;
   }
 
   Future<bool> _showFilenameConflictDialog({
@@ -845,7 +947,11 @@ class _BuilderCard extends StatelessWidget {
             child: ElevatedButton.icon(
               onPressed: saving ? null : onSave,
               icon: Icon(editing ? Icons.update_rounded : Icons.save_rounded),
-              label: Text(saving ? 'Saving...' : editing ? 'Update Custom Preset' : 'Save Custom Preset'),
+              label: Text(saving
+                  ? 'Saving...'
+                  : editing
+                      ? 'Update Custom Preset'
+                      : 'Save Custom Preset'),
             ),
           ),
           const SizedBox(height: 8),
@@ -894,6 +1000,40 @@ class _InfoLine extends StatelessWidget {
               maxLines: 1,
               overflow: TextOverflow.ellipsis,
               style: const TextStyle(color: AppTheme.textSecondary, fontSize: 11),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _ValidationRow extends StatelessWidget {
+  final String label;
+  final String value;
+
+  const _ValidationRow({required this.label, required this.value});
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 8),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          SizedBox(
+            width: 92,
+            child: Text(
+              label,
+              style: const TextStyle(color: AppTheme.textMuted, fontSize: 12),
+            ),
+          ),
+          Expanded(
+            child: Text(
+              value,
+              maxLines: 2,
+              overflow: TextOverflow.ellipsis,
+              style: const TextStyle(color: AppTheme.textSecondary, fontSize: 12),
             ),
           ),
         ],
@@ -962,6 +1102,9 @@ class _PresetCard extends StatelessWidget {
   final VoidCallback? onEdit;
   final VoidCallback? onClone;
   final VoidCallback? onTest;
+  final VoidCallback? onFavorite;
+  final VoidCallback? onMoveUp;
+  final VoidCallback? onMoveDown;
   final VoidCallback? onRemove;
 
   const _PresetCard({
@@ -972,6 +1115,9 @@ class _PresetCard extends StatelessWidget {
     this.onEdit,
     this.onClone,
     this.onTest,
+    this.onFavorite,
+    this.onMoveUp,
+    this.onMoveDown,
     this.onRemove,
   });
 
@@ -1020,6 +1166,15 @@ class _PresetCard extends StatelessWidget {
                   ],
                 ),
               ),
+              if (onFavorite != null)
+                IconButton(
+                  tooltip: preset.isFavorite ? 'Unfavorite preset' : 'Favorite preset',
+                  onPressed: onFavorite,
+                  icon: Icon(
+                    preset.isFavorite ? Icons.star_rounded : Icons.star_border_rounded,
+                    color: preset.isFavorite ? AppTheme.warning : AppTheme.textMuted,
+                  ),
+                ),
               if (onRemove != null)
                 IconButton(
                   tooltip: 'Delete preset',
@@ -1071,6 +1226,18 @@ class _PresetCard extends StatelessWidget {
                   onPressed: onClone,
                   icon: const Icon(Icons.copy_all_rounded),
                   label: Text(isCustom ? 'Duplicate' : 'Clone'),
+                ),
+              if (onMoveUp != null)
+                OutlinedButton.icon(
+                  onPressed: onMoveUp,
+                  icon: const Icon(Icons.keyboard_arrow_up_rounded),
+                  label: const Text('Up'),
+                ),
+              if (onMoveDown != null)
+                OutlinedButton.icon(
+                  onPressed: onMoveDown,
+                  icon: const Icon(Icons.keyboard_arrow_down_rounded),
+                  label: const Text('Down'),
                 ),
               if (onTest != null)
                 OutlinedButton.icon(
