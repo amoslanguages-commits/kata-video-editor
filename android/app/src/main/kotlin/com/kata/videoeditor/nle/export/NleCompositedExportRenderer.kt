@@ -2,7 +2,6 @@ package com.kata.videoeditor.nle.export
 
 import android.media.MediaCodec
 import android.media.MediaCodecInfo
-import android.media.MediaExtractor
 import android.media.MediaFormat
 import android.media.MediaMuxer
 import com.kata.videoeditor.nle.NleContextHolder
@@ -25,6 +24,7 @@ class NleCompositedExportRenderer(
 ) {
     private val graphParser = NleRenderGraphParser()
     private val audioPlanner = NleCompositedAudioTrackPlanner()
+    private val audioMixdownRenderer = NlePcmAudioMixdownRenderer()
     private val colorFallbackResolver = NleColorPipelineFallbackResolver()
 
     fun render(
@@ -48,7 +48,7 @@ class NleCompositedExportRenderer(
             capability = colorCapability,
             forExport = true,
         )
-        val audioTracks = audioPlanner.plan(graph, preferProxy = preferProxyForExport)
+        val plannedAudioTracks = audioPlanner.plan(graph, preferProxy = preferProxyForExport)
         val width = profileMap.exportInt("width")
             ?: profileMap.exportInt("targetWidth")
             ?: profileMap.exportInt("outputWidth")
@@ -65,12 +65,30 @@ class NleCompositedExportRenderer(
         val durationUs = graph.project.durationUs.coerceAtLeast(1L)
         val frameStepUs = 1_000_000L / frameRate
         val totalFrames = max(1L, (durationUs + frameStepUs - 1L) / frameStepUs)
+        val audioSampleRate = (profileMap.exportInt("audioSampleRate") ?: graph.audioMix.sampleRate).coerceIn(8_000, 192_000)
+        val audioChannels = (profileMap.exportInt("audioChannels") ?: graph.audioMix.channels).coerceIn(1, 2)
+        val audioBitrate = profileMap.exportInt("audioBitrate") ?: 192_000
 
         val outputFile = File(outputPath)
         outputFile.parentFile?.mkdirs()
         if (outputFile.exists()) outputFile.delete()
 
         emit("export_progress", mapOf("stage" to "Preparing compositor", "progress" to 1, "preferProxy" to preferProxyForExport))
+
+        val audioMixdown = if (plannedAudioTracks.isNotEmpty()) {
+            audioMixdownRenderer.mixToAac(
+                plannedTracks = plannedAudioTracks,
+                durationUs = durationUs,
+                sampleRate = audioSampleRate,
+                channels = audioChannels,
+                bitrate = audioBitrate,
+                token = token,
+            ) { stage, progress ->
+                emit("export_progress", mapOf("stage" to stage, "progress" to progress, "preferProxy" to preferProxyForExport, "audioMixdown" to true))
+            }
+        } else {
+            null
+        }
 
         var encoder: MediaCodec? = null
         var muxer: MediaMuxer? = null
@@ -80,7 +98,7 @@ class NleCompositedExportRenderer(
         val decoderPool = NleVideoDecoderPool()
         var muxerStarted = false
         var muxerVideoTrack = -1
-        var muxerAudioTracks = emptyMap<NlePlannedAudioTrack, Int>()
+        var muxerAudioTrack = -1
 
         try {
             val activeEncoder = MediaCodec.createEncoderByType(MediaFormat.MIMETYPE_VIDEO_AVC)
@@ -145,16 +163,16 @@ class NleCompositedExportRenderer(
                     endOfStream = false,
                     muxerStarted = muxerStarted,
                     currentVideoTrack = muxerVideoTrack,
-                    pendingAudioTracks = audioTracks,
-                    currentAudioTracks = muxerAudioTracks,
+                    pendingAudioMixdown = audioMixdown,
+                    currentAudioTrack = muxerAudioTrack,
                 ).also { drain ->
                     muxerStarted = drain.muxerStarted
                     muxerVideoTrack = drain.videoTrackIndex
-                    muxerAudioTracks = drain.audioTrackMap
+                    muxerAudioTrack = drain.audioTrackIndex
                 }
 
                 if (frameIndex % frameRate == 0L || frameIndex == totalFrames - 1L) {
-                    val progress = (2 + (frameIndex * 86 / totalFrames)).toInt().coerceIn(2, 88)
+                    val progress = (2 + (frameIndex * 83 / totalFrames)).toInt().coerceIn(2, 85)
                     emit("export_progress", mapOf("stage" to "Compositing", "progress" to progress, "preferProxy" to preferProxyForExport))
                 }
                 frameIndex += 1
@@ -167,28 +185,28 @@ class NleCompositedExportRenderer(
                 endOfStream = true,
                 muxerStarted = muxerStarted,
                 currentVideoTrack = muxerVideoTrack,
-                pendingAudioTracks = audioTracks,
-                currentAudioTracks = muxerAudioTracks,
+                pendingAudioMixdown = audioMixdown,
+                currentAudioTrack = muxerAudioTrack,
             ).also { drain ->
                 muxerStarted = drain.muxerStarted
                 muxerVideoTrack = drain.videoTrackIndex
-                muxerAudioTracks = drain.audioTrackMap
+                muxerAudioTrack = drain.audioTrackIndex
             }
 
-            if (audioTracks.isNotEmpty()) {
-                if (!muxerStarted || muxerVideoTrack < 0 || muxerAudioTracks.isEmpty()) {
-                    throw IllegalStateException("Muxer was not ready for timeline audio tracks.")
+            if (audioMixdown != null) {
+                if (!muxerStarted || muxerVideoTrack < 0 || muxerAudioTrack < 0) {
+                    throw IllegalStateException("Muxer was not ready for timeline AAC mixdown.")
                 }
-                emit("export_progress", mapOf("stage" to "Muxing audio", "progress" to 90, "preferProxy" to preferProxyForExport))
-                writeAudioTracks(
-                    audioTracks = muxerAudioTracks,
+                emit("export_progress", mapOf("stage" to "Muxing mixed audio", "progress" to 92, "preferProxy" to preferProxyForExport, "audioMixdown" to true))
+                writeEncodedAudioMixdown(
+                    mixdown = audioMixdown,
                     muxer = activeMuxer,
-                    durationUs = durationUs,
+                    muxerTrack = muxerAudioTrack,
                     token = token,
                 )
             }
 
-            emit("export_progress", mapOf("stage" to "Finalizing", "progress" to 99, "preferProxy" to preferProxyForExport))
+            emit("export_progress", mapOf("stage" to "Finalizing", "progress" to 99, "preferProxy" to preferProxyForExport, "audioMixdown" to (audioMixdown != null)))
         } catch (cancelled: NleExportCancelledException) {
             outputFile.delete()
             throw cancelled
@@ -214,24 +232,26 @@ class NleCompositedExportRenderer(
         endOfStream: Boolean,
         muxerStarted: Boolean,
         currentVideoTrack: Int,
-        pendingAudioTracks: List<NlePlannedAudioTrack>,
-        currentAudioTracks: Map<NlePlannedAudioTrack, Int>,
+        pendingAudioMixdown: NleEncodedAacMixdown?,
+        currentAudioTrack: Int,
     ): DrainState {
         val bufferInfo = MediaCodec.BufferInfo()
         var started = muxerStarted
         var videoTrack = currentVideoTrack
-        var audioTrackMap = currentAudioTracks
+        var audioTrack = currentAudioTrack
 
         while (true) {
             val outputBufferId = encoder.dequeueOutputBuffer(bufferInfo, if (endOfStream) 10_000L else 0L)
             when {
                 outputBufferId == MediaCodec.INFO_TRY_AGAIN_LATER -> {
-                    if (!endOfStream) return DrainState(started, videoTrack, audioTrackMap)
+                    if (!endOfStream) return DrainState(started, videoTrack, audioTrack)
                 }
                 outputBufferId == MediaCodec.INFO_OUTPUT_FORMAT_CHANGED -> {
                     if (started) throw IllegalStateException("Encoder output format changed after muxer started.")
                     videoTrack = muxer.addTrack(encoder.outputFormat)
-                    audioTrackMap = pendingAudioTracks.associateWith { planned -> muxer.addTrack(planned.format) }
+                    if (pendingAudioMixdown != null) {
+                        audioTrack = muxer.addTrack(pendingAudioMixdown.format)
+                    }
                     muxer.start()
                     started = true
                 }
@@ -249,50 +269,25 @@ class NleCompositedExportRenderer(
                     }
                     val eos = bufferInfo.flags and MediaCodec.BUFFER_FLAG_END_OF_STREAM != 0
                     encoder.releaseOutputBuffer(outputBufferId, false)
-                    if (eos) return DrainState(started, videoTrack, audioTrackMap)
+                    if (eos) return DrainState(started, videoTrack, audioTrack)
                 }
             }
         }
     }
 
-    private fun writeAudioTracks(
-        audioTracks: Map<NlePlannedAudioTrack, Int>,
+    private fun writeEncodedAudioMixdown(
+        mixdown: NleEncodedAacMixdown,
         muxer: MediaMuxer,
-        durationUs: Long,
+        muxerTrack: Int,
         token: NleExportCancellationToken,
     ) {
-        val buffer = ByteBuffer.allocateDirect(2 * 1024 * 1024)
         val info = MediaCodec.BufferInfo()
-        for ((planned, muxerTrack) in audioTracks) {
+        for (sample in mixdown.samples) {
             if (token.cancelled) throw NleExportCancelledException()
-            val extractor = MediaExtractor()
-            try {
-                extractor.setDataSource(planned.sourcePath)
-                extractor.selectTrack(planned.sourceTrackIndex)
-                extractor.seekTo(planned.clip.sourceStartUs.coerceAtLeast(0L), MediaExtractor.SEEK_TO_PREVIOUS_SYNC)
-                while (!token.cancelled) {
-                    val sampleTrack = extractor.sampleTrackIndex
-                    if (sampleTrack < 0) break
-                    if (sampleTrack != planned.sourceTrackIndex) {
-                        extractor.advance()
-                        continue
-                    }
-                    val sampleTime = extractor.sampleTime
-                    if (sampleTime < 0 || sampleTime > planned.clip.sourceEndUs) break
-                    val timelineTimeUs = planned.clip.timelineStartUs + ((sampleTime - planned.clip.sourceStartUs) / planned.clip.speed).toLong()
-                    if (timelineTimeUs >= durationUs || timelineTimeUs >= planned.clip.timelineEndUs) break
-                    buffer.clear()
-                    val sampleSize = extractor.readSampleData(buffer, 0)
-                    if (sampleSize < 0) break
-                    info.set(0, sampleSize, timelineTimeUs.coerceAtLeast(0L), extractor.sampleFlags)
-                    muxer.writeSampleData(muxerTrack, buffer, info)
-                    extractor.advance()
-                }
-            } finally {
-                try { extractor.release() } catch (_: Throwable) {}
-            }
+            val buffer = ByteBuffer.wrap(sample.data)
+            info.set(0, sample.data.size, sample.presentationTimeUs.coerceAtLeast(0L), sample.flags)
+            muxer.writeSampleData(muxerTrack, buffer, info)
         }
-        if (token.cancelled) throw NleExportCancelledException()
     }
 
     private fun defaultBitrate(width: Int, height: Int, frameRate: Int): Int {
@@ -305,7 +300,7 @@ class NleCompositedExportRenderer(
 private data class DrainState(
     val muxerStarted: Boolean,
     val videoTrackIndex: Int,
-    val audioTrackMap: Map<NlePlannedAudioTrack, Int>,
+    val audioTrackIndex: Int,
 )
 
 internal class NleExportCancellationToken {
