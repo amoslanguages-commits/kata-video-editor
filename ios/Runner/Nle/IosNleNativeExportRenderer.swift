@@ -16,6 +16,15 @@ final class IosNleNativeExportRenderer {
         renderGraphJson: String,
         outputPath: String
     ) throws -> [String: Any?] {
+        if requiresCompositedExport(renderGraphJson) {
+            return try IosNleCompositedExportRenderer(eventEmitter: eventEmitter).start(
+                projectId: projectId,
+                jobId: jobId,
+                renderGraphJson: renderGraphJson,
+                outputPath: outputPath
+            )
+        }
+
         let job = try parseSingleClipJob(
             projectId: projectId,
             renderGraphJson: renderGraphJson,
@@ -109,9 +118,7 @@ final class IosNleNativeExportRenderer {
                     ]
                 ])
             case .cancelled:
-                self.emit(jobId: jobId, projectId: projectId, type: IosNleEventType.exportCancelled, payload: [
-                    "stage": "Cancelled"
-                ])
+                self.emit(jobId: jobId, projectId: projectId, type: IosNleEventType.exportCancelled, payload: ["stage": "Cancelled"])
             default:
                 self.emit(jobId: jobId, projectId: projectId, type: IosNleEventType.exportFailed, payload: [
                     "stage": "Failed",
@@ -148,22 +155,31 @@ final class IosNleNativeExportRenderer {
         }
     }
 
+    private func requiresCompositedExport(_ renderGraphJson: String) -> Bool {
+        guard let root = try? parseRoot(renderGraphJson) else { return false }
+        let tracks = array(root["tracks"])
+        var clips = array(root["clips"])
+        if clips.isEmpty { clips = tracks.flatMap { array($0["clips"]) } }
+        let enabled = clips.filter { !bool($0["isDisabled"]) }
+        guard enabled.count == 1 else { return true }
+        let clip = enabled[0]
+        let type = string(clip["clipType"]) ?? string(clip["type"]) ?? "video"
+        if type != "video" { return true }
+        if (double(clip["speed"]) ?? 1.0) != 1.0 { return true }
+        if (double(clip["opacity"]) ?? 1.0) != 1.0 { return true }
+        return false
+    }
+
     private func parseSingleClipJob(
         projectId: String,
         renderGraphJson: String,
         outputPath: String
     ) throws -> IosExportJobDescriptor {
-        let data = Data(renderGraphJson.utf8)
-        let object = try JSONSerialization.jsonObject(with: data)
-        guard let root = object as? [String: Any] else {
-            throw NSError(domain: "IosNleNativeExportRenderer", code: 1, userInfo: [NSLocalizedDescriptionKey: "Invalid render graph JSON."])
-        }
+        let root = try parseRoot(renderGraphJson)
         let assets = array(root["assets"])
         let tracks = array(root["tracks"])
         var clips = array(root["clips"])
-        if clips.isEmpty {
-            clips = tracks.flatMap { array($0["clips"]) }
-        }
+        if clips.isEmpty { clips = tracks.flatMap { array($0["clips"]) } }
         let visualClips = clips.filter { clip in
             if bool(clip["isDisabled"]) { return false }
             let type = string(clip["clipType"]) ?? string(clip["type"]) ?? "video"
@@ -180,11 +196,7 @@ final class IosNleNativeExportRenderer {
         guard let asset = assets.first(where: { string($0["id"]) == assetId }) else {
             throw NSError(domain: "IosNleNativeExportRenderer", code: 4, userInfo: [NSLocalizedDescriptionKey: "Export asset was not found."])
         }
-        let path = string(asset["exportPath"])
-            ?? string(asset["sourcePath"])
-            ?? string(asset["originalPath"])
-            ?? string(asset["path"])
-            ?? ""
+        let path = string(asset["exportPath"]) ?? string(asset["sourcePath"]) ?? string(asset["originalPath"]) ?? string(asset["path"]) ?? ""
         guard !path.isEmpty else {
             throw NSError(domain: "IosNleNativeExportRenderer", code: 5, userInfo: [NSLocalizedDescriptionKey: "Export asset path is missing."])
         }
@@ -201,34 +213,27 @@ final class IosNleNativeExportRenderer {
         )
     }
 
+    private func parseRoot(_ json: String) throws -> [String: Any] {
+        let data = Data(json.utf8)
+        let object = try JSONSerialization.jsonObject(with: data)
+        guard let root = object as? [String: Any] else {
+            throw NSError(domain: "IosNleNativeExportRenderer", code: 1, userInfo: [NSLocalizedDescriptionKey: "Invalid render graph JSON."])
+        }
+        return root
+    }
+
     private func emit(jobId: String, projectId: String?, type: String, payload: [String: Any?]) {
-        eventEmitter.emit(
-            IosNleEvent(
-                type: type,
-                projectId: projectId,
-                sessionId: nil,
-                jobId: jobId,
-                payload: payload
-            )
-        )
+        eventEmitter.emit(IosNleEvent(type: type, projectId: projectId, sessionId: nil, jobId: jobId, payload: payload))
     }
 
-    private func array(_ value: Any?) -> [[String: Any]] {
-        return value as? [[String: Any]] ?? []
-    }
-
-    private func string(_ value: Any?) -> String? {
-        if let value = value as? String, !value.isEmpty { return value }
-        return nil
-    }
-
+    private func array(_ value: Any?) -> [[String: Any]] { value as? [[String: Any]] ?? [] }
+    private func string(_ value: Any?) -> String? { (value as? String).flatMap { $0.isEmpty ? nil : $0 } }
     private func bool(_ value: Any?) -> Bool {
         if let value = value as? Bool { return value }
         if let value = value as? NSNumber { return value.boolValue }
         if let value = value as? String { return value.lowercased() == "true" }
         return false
     }
-
     private func int64(_ value: Any?) -> Int64? {
         if let value = value as? Int64 { return value }
         if let value = value as? Int { return Int64(value) }
@@ -236,14 +241,12 @@ final class IosNleNativeExportRenderer {
         if let value = value as? String { return Int64(value) }
         return nil
     }
-
     private func double(_ value: Any?) -> Double? {
         if let value = value as? Double { return value }
         if let value = value as? NSNumber { return value.doubleValue }
         if let value = value as? String { return Double(value) }
         return nil
     }
-
     private func url(from path: String) -> URL {
         if path.hasPrefix("file://"), let url = URL(string: path) { return url }
         return URL(fileURLWithPath: path)
