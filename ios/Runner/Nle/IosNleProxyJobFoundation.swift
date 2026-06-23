@@ -28,7 +28,7 @@ final class IosNleProxyJobFoundation {
             IosNleProxyJobFoundation.shared.release(jobId: jobId)
             eventEmitter.emit(
                 IosNleEvent(
-                    type: IosNleEventType.proxyFailed,
+                    type: "proxy_failed",
                     projectId: projectId,
                     sessionId: nil,
                     jobId: jobId,
