@@ -8,6 +8,7 @@ final class IosNleEngineManager {
     private let mediaProbe = IosNleMediaProbe()
     private let previewTextureManager: IosNlePreviewTextureManager
     private let nativeExportRenderer: IosNleNativeExportRenderer
+    private let proxyJobFoundation = IosNleProxyJobFoundation()
 
     private var initialized = false
     private var sessions: [String: IosNleEngineSession] = [:]
@@ -350,14 +351,13 @@ final class IosNleEngineManager {
         let assetId = args.stringRequired("assetId")
         let inputPath = args.stringRequired("inputPath")
         let outputPath = args.stringRequired("outputPath")
-        IosNleProxyJobFoundation().start(projectId: projectId, jobId: jobId, assetId: assetId, inputPath: inputPath, outputPath: outputPath, eventEmitter: eventEmitter)
-        return ["success": true, "jobId": jobId, "placeholder": true]
+        proxyJobFoundation.start(projectId: projectId, jobId: jobId, assetId: assetId, inputPath: inputPath, outputPath: outputPath, eventEmitter: eventEmitter)
+        return ["success": true, "jobId": jobId, "assetId": assetId, "accepted": true, "nativeRenderer": "ios_avasset_proxy_v1"]
     }
 
     func cancelProxyJob(jobId: String) throws -> [String: Any?] {
         try requireInitialized()
-        eventEmitter.emit(IosNleEvent(type: IosNleEventType.proxyCancelled, projectId: nil, sessionId: nil, jobId: jobId, payload: ["jobId": jobId, "platform": "ios"]))
-        return ["success": true, "jobId": jobId]
+        return proxyJobFoundation.cancel(jobId: jobId)
     }
 
     func startExportJob(args: [String: Any?]) throws -> [String: Any?] {
