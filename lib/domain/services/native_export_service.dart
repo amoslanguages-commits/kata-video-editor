@@ -6,6 +6,7 @@ import 'package:path/path.dart' as p;
 
 import 'package:nle_editor/data/database/app_database.dart';
 import 'package:nle_editor/data/repositories/export_repository.dart';
+import 'package:nle_editor/domain/export/export_filename_builder.dart';
 import 'package:nle_editor/domain/render_graph/render_graph_service.dart';
 import 'package:nle_editor/domain/services/project_storage_service.dart';
 import 'package:nle_editor/native_bridge/native_bridge_contract.dart';
@@ -52,17 +53,27 @@ class NativeExportService {
     // Build the render graph JSON string
     final renderGraphJson = await renderGraphService.buildProjectGraph(projectId);
 
-    // Resolve output path
-    final folders = await storageService.getProjectFolders(projectId);
-    final timestamp = DateTime.now().millisecondsSinceEpoch;
-    final requestedName = settings['outputFileName']?.toString().trim();
-    final outputFileName = requestedName == null || requestedName.isEmpty
-        ? 'export_${timestamp}_${jobId.substring(0, 8)}.mp4'
-        : requestedName;
-    final outputPath = p.join(folders.exports, outputFileName);
-
     // Fetch project configuration directly from DB
     final project = await database.getProjectById(projectId);
+
+    // Resolve output path
+    final folders = await storageService.getProjectFolders(projectId);
+    final requestedName = settings['outputFileName']?.toString().trim();
+    final outputFileName = requestedName == null || requestedName.isEmpty
+        ? const ExportFilenameBuilder().build(
+            pattern: settings['filenamePattern']?.toString() ??
+                ExportFilenamePatterns.defaultPattern,
+            projectName: project.name,
+            presetName: settings['presetName']?.toString() ??
+                settings['preset']?.toString() ??
+                'export',
+            platform: settings['platform']?.toString() ?? 'video',
+            resolution: '${settings['width'] ?? project.targetWidth}x${settings['resolution'] ?? project.targetHeight}',
+            extension: settings['format']?.toString() ?? 'mp4',
+            version: (DateTime.now().millisecondsSinceEpoch % 99) + 1,
+          )
+        : requestedName;
+    final outputPath = p.join(folders.exports, outputFileName);
 
     // Build export profile using DB project config
     final aspectRatio = project.aspectRatio;
