@@ -12,13 +12,11 @@ import 'package:nle_editor/core/theme/app_theme.dart';
 import 'package:nle_editor/domain/preview/preview_monitor.dart';
 import 'package:nle_editor/presentation/providers/dual_preview_layout_providers.dart';
 import 'package:nle_editor/presentation/providers/editor_providers.dart';
-import 'package:nle_editor/presentation/providers/native_true_preview_providers.dart';
-import 'package:nle_editor/presentation/widgets/preview/social_safe_zone_overlay.dart';
+import 'package:nle_editor/presentation/providers/real_native_preview_provider.dart';
 import 'package:nle_editor/presentation/widgets/preview/native_true_preview_view.dart';
 import 'package:nle_editor/presentation/widgets/preview/source_preview_view.dart';
 import 'package:nle_editor/presentation/widgets/preview/true_preview_controls.dart';
 import 'package:nle_editor/presentation/widgets/premium/premium_bounce_button.dart';
-
 
 /// Drop-in replacement for [PreviewArea] that adds a Source monitor.
 ///
@@ -40,27 +38,25 @@ class DualPreviewArea extends ConsumerWidget {
     final size = MediaQuery.sizeOf(context);
     final isLandscape = size.width > 640;
 
-    // Sync scrubbing: when the playhead moves and we're NOT playing, render a frame.
     ref.listen(
       editorStateProvider.select((s) => s.currentTimeMicros),
       (previous, next) {
         if (previous != next && !ref.read(editorStateProvider).isPlaying) {
           ref
-              .read(nativeTruePreviewControllerProvider(projectId).notifier)
-              .renderFrame(next);
+              .read(realNativePreviewProvider(projectId).notifier)
+              .requestFrame(next);
         }
       },
     );
 
-    // Sync playback: when global playback starts/stops, start/stop the preview loop.
     ref.listen(
       editorStateProvider.select((s) => s.isPlaying),
       (previous, next) {
         if (previous != next) {
           final controller =
-              ref.read(nativeTruePreviewControllerProvider(projectId).notifier);
+              ref.read(realNativePreviewProvider(projectId).notifier);
           if (next) {
-            controller.playFrom(ref.read(editorStateProvider).currentTimeMicros);
+            controller.play();
           } else {
             controller.pause();
           }
@@ -82,8 +78,6 @@ class DualPreviewArea extends ConsumerWidget {
   }
 }
 
-// ── Side-by-side layout (tablet / landscape) ────────────────────────────────
-
 class _SideBySideLayout extends ConsumerWidget {
   final String projectId;
   final void Function(String)? onClipInserted;
@@ -99,7 +93,6 @@ class _SideBySideLayout extends ConsumerWidget {
 
     return Row(
       children: [
-        // Source Monitor
         Expanded(
           child: _MonitorFrame(
             label: 'SOURCE',
@@ -111,10 +104,7 @@ class _SideBySideLayout extends ConsumerWidget {
             ),
           ),
         ),
-
         Container(width: 2, color: AppTheme.borderSubtle),
-
-        // Program Monitor
         Expanded(
           child: _MonitorFrame(
             label: 'PROGRAM',
@@ -126,8 +116,6 @@ class _SideBySideLayout extends ConsumerWidget {
     );
   }
 }
-
-// ── Tabbed layout (phone portrait) ──────────────────────────────────────────
 
 class _ProgramPreview extends StatelessWidget {
   final String projectId;
@@ -141,13 +129,6 @@ class _ProgramPreview extends StatelessWidget {
       alignment: Alignment.center,
       children: [
         NativeTruePreviewView(projectId: projectId),
-        // Social Safe Zone Overlay (Toggled via settings or UI)
-        const Positioned.fill(
-          child: SocialSafeZoneOverlay(
-            platform: SocialPlatform.tiktok,
-            isVisible: true, // Hardcoded for demo, normally bound to a provider
-          ),
-        ),
         Positioned(
           bottom: 16,
           child: TruePreviewControls(projectId: projectId),
@@ -176,13 +157,10 @@ class _TabbedLayout extends ConsumerWidget {
 
     return Column(
       children: [
-        // ── Tab bar ──────────────────────────────────────────────────────
         _MonitorTabBar(
           active: layoutState.activeMonitor,
           onChanged: layoutNotifier.setActive,
         ),
-
-        // ── Active monitor ────────────────────────────────────────────────
         Expanded(
           child: IndexedStack(
             index: isSource ? 0 : 1,
@@ -201,7 +179,6 @@ class _TabbedLayout extends ConsumerWidget {
   }
 }
 
-// ── Monitor tab bar (Segmented sliding pill switcher) ────────────────────────
 class _MonitorTabBar extends StatelessWidget {
   final PreviewMonitor active;
   final void Function(PreviewMonitor) onChanged;
@@ -228,7 +205,6 @@ class _MonitorTabBar extends StatelessWidget {
 
             return Stack(
               children: [
-                // Sliding selection indicator background
                 AnimatedPositioned(
                   duration: const Duration(milliseconds: 220),
                   curve: Curves.easeInOutCubic,
@@ -260,8 +236,6 @@ class _MonitorTabBar extends StatelessWidget {
                     ),
                   ),
                 ),
-
-                // Interactive tabs
                 Row(
                   children: [
                     Expanded(
@@ -280,10 +254,9 @@ class _MonitorTabBar extends StatelessWidget {
                               Text(
                                 'SOURCE',
                                 style: TextStyle(
-                                  fontSize: 11,
-                                  fontWeight: FontWeight.w800,
-                                  letterSpacing: 0.8,
                                   color: isSource ? Colors.black : AppTheme.textSecondary,
+                                  fontWeight: FontWeight.w800,
+                                  fontSize: 12,
                                 ),
                               ),
                             ],
@@ -299,7 +272,7 @@ class _MonitorTabBar extends StatelessWidget {
                             mainAxisAlignment: MainAxisAlignment.center,
                             children: [
                               Icon(
-                                Icons.smart_display_outlined,
+                                Icons.live_tv_rounded,
                                 size: 14,
                                 color: !isSource ? Colors.black : AppTheme.textSecondary,
                               ),
@@ -307,10 +280,9 @@ class _MonitorTabBar extends StatelessWidget {
                               Text(
                                 'PROGRAM',
                                 style: TextStyle(
-                                  fontSize: 11,
-                                  fontWeight: FontWeight.w800,
-                                  letterSpacing: 0.8,
                                   color: !isSource ? Colors.black : AppTheme.textSecondary,
+                                  fontWeight: FontWeight.w800,
+                                  fontSize: 12,
                                 ),
                               ),
                             ],
@@ -329,8 +301,6 @@ class _MonitorTabBar extends StatelessWidget {
   }
 }
 
-// ── Monitor frame label (side-by-side mode) ─────────────────────────────────
-
 class _MonitorFrame extends StatelessWidget {
   final String label;
   final Color accentColor;
@@ -344,39 +314,37 @@ class _MonitorFrame extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Column(
-      children: [
-        // Label strip
-        Container(
-          width: double.infinity,
-          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
-          color: AppTheme.surfaceDark,
-          child: Row(
-            children: [
-              Container(
-                width: 3,
-                height: 10,
-                decoration: BoxDecoration(
-                  color: accentColor,
-                  borderRadius: BorderRadius.circular(2),
-                ),
+    return Container(
+      decoration: BoxDecoration(
+        color: AppTheme.editorBackground,
+        border: Border.all(color: AppTheme.borderSubtle),
+      ),
+      child: Stack(
+        children: [
+          Positioned.fill(child: child),
+          Positioned(
+            top: 8,
+            left: 8,
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 4),
+              decoration: BoxDecoration(
+                color: Colors.black.withOpacity(0.45),
+                borderRadius: BorderRadius.circular(999),
+                border: Border.all(color: accentColor.withOpacity(0.55)),
               ),
-              const SizedBox(width: 6),
-              Text(
+              child: Text(
                 label,
                 style: TextStyle(
-                  fontSize: 10,
-                  fontWeight: FontWeight.w800,
-                  letterSpacing: 1.2,
                   color: accentColor,
+                  fontSize: 10,
+                  fontWeight: FontWeight.w900,
+                  letterSpacing: 0.7,
                 ),
               ),
-            ],
+            ),
           ),
-        ),
-
-        Expanded(child: child),
-      ],
+        ],
+      ),
     );
   }
 }
