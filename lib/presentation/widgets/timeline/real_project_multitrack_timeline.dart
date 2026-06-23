@@ -4,6 +4,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:nle_editor/core/theme/app_theme.dart';
 import 'package:nle_editor/core/ui/premium_ui_tokens.dart';
 import 'package:nle_editor/domain/timeline/multitrack_models.dart';
+import 'package:nle_editor/domain/timeline/timeline_edit_models.dart';
 import 'package:nle_editor/presentation/providers/polish_providers.dart';
 import 'package:nle_editor/presentation/providers/real_multitrack_timeline_providers.dart';
 import 'package:nle_editor/presentation/providers/track_controls_providers.dart';
@@ -12,6 +13,8 @@ import 'package:nle_editor/presentation/widgets/timeline/rename_track_dialog.dar
 import 'package:nle_editor/presentation/widgets/timeline/timeline_track_header.dart';
 import 'package:nle_editor/presentation/providers/editor_providers.dart';
 import 'package:nle_editor/presentation/providers/clip_interactions_providers.dart';
+import 'package:nle_editor/presentation/providers/timeline_edit_providers.dart';
+import 'package:nle_editor/presentation/providers/timeline_snap_providers.dart';
 import 'package:nle_editor/presentation/widgets/timeline/timeline_clip_actions.dart';
 import 'package:nle_editor/presentation/widgets/timeline/pie_menu_overlay.dart';
 
@@ -239,28 +242,20 @@ class _RealProjectMultitrackTimelineState extends ConsumerState<RealProjectMulti
     required String? targetTrackId,
     required int deltaMicros,
   }) async {
-    final controller = ref.read(clipInteractionsControllerProvider(widget.projectId));
+    final editController = ref.read(timelineEditCommandControllerProvider(widget.projectId));
     final haptics = ref.read(hapticServiceProvider);
 
     try {
-      if (targetTrackId != null) {
-        final timelineAsync = ref.read(realProjectTimelineProvider(widget.projectId));
-        final model = timelineAsync.value;
-        if (model != null) {
-          final clip = model.clips.firstWhere((c) => c.id == clipId);
-          final newStart = clip.timelineStartMicros + deltaMicros;
-          await controller.moveClipTo(
-            clipId: clipId,
-            targetTrackId: targetTrackId,
-            newStartMicros: newStart,
-          );
-        }
-      } else {
-        await controller.moveClipBy(
-          clipId: clipId,
-          deltaMicros: deltaMicros,
-        );
-      }
+      final clip = _findClip(ref, clipId);
+      final targetStart = clip.timelineStartMicros + deltaMicros;
+      await editController.moveClip(
+        clipId: clipId,
+        targetTrackId: targetTrackId ?? clip.trackId,
+        targetStartMicros: targetStart,
+        options: TimelineEditOptions(
+          snapping: ref.read(timelineSnapSettingsProvider).enabled,
+        ),
+      );
       await haptics.light();
     } catch (error) {
       await haptics.warning();
@@ -280,13 +275,17 @@ class _RealProjectMultitrackTimelineState extends ConsumerState<RealProjectMulti
     required String clipId,
     required int deltaMicros,
   }) async {
-    final controller = ref.read(clipInteractionsControllerProvider(widget.projectId));
+    final editController = ref.read(timelineEditCommandControllerProvider(widget.projectId));
     final haptics = ref.read(hapticServiceProvider);
 
     try {
-      await controller.trimLeftBy(
+      final clip = _findClip(ref, clipId);
+      await editController.trimStart(
         clipId: clipId,
-        deltaMicros: deltaMicros,
+        newStartMicros: clip.timelineStartMicros + deltaMicros,
+        options: TimelineEditOptions(
+          snapping: ref.read(timelineSnapSettingsProvider).enabled,
+        ),
       );
       await haptics.light();
     } catch (error) {
@@ -307,13 +306,17 @@ class _RealProjectMultitrackTimelineState extends ConsumerState<RealProjectMulti
     required String clipId,
     required int deltaMicros,
   }) async {
-    final controller = ref.read(clipInteractionsControllerProvider(widget.projectId));
+    final editController = ref.read(timelineEditCommandControllerProvider(widget.projectId));
     final haptics = ref.read(hapticServiceProvider);
 
     try {
-      await controller.trimRightBy(
+      final clip = _findClip(ref, clipId);
+      await editController.trimEnd(
         clipId: clipId,
-        deltaMicros: deltaMicros,
+        newEndMicros: clip.timelineEndMicros + deltaMicros,
+        options: TimelineEditOptions(
+          snapping: ref.read(timelineSnapSettingsProvider).enabled,
+        ),
       );
       await haptics.light();
     } catch (error) {
@@ -334,26 +337,27 @@ class _RealProjectMultitrackTimelineState extends ConsumerState<RealProjectMulti
     required String clipId,
     required TimelineClipAction action,
   }) async {
-    final controller = ref.read(clipInteractionsControllerProvider(widget.projectId));
+    final legacyController = ref.read(clipInteractionsControllerProvider(widget.projectId));
+    final editController = ref.read(timelineEditCommandControllerProvider(widget.projectId));
     final haptics = ref.read(hapticServiceProvider);
 
     try {
       switch (action) {
         case TimelineClipAction.split:
           final splitMicros = ref.read(editorStateProvider).currentTimeMicros;
-          final result = await controller.splitClipAt(
+          final result = await editController.split(
             clipId: clipId,
             splitMicros: splitMicros,
           );
-          if (result.newClipId != null) {
+          if (result.after.isNotEmpty) {
             ref
                 .read(editorStateProvider.notifier)
-                .selectClip(result.newClipId!, null);
+                .selectClip(result.after.last.id, null);
           }
           await haptics.success();
           break;
         case TimelineClipAction.duplicate:
-          final result = await controller.duplicateClip(clipId: clipId);
+          final result = await legacyController.duplicateClip(clipId: clipId);
           if (result.newClipId != null) {
             ref
                 .read(editorStateProvider.notifier)
@@ -364,7 +368,12 @@ class _RealProjectMultitrackTimelineState extends ConsumerState<RealProjectMulti
         case TimelineClipAction.delete:
           final confirm = await _showDeleteConfirmation(context);
           if (confirm == true) {
-            await controller.deleteClip(clipId: clipId);
+            await editController.rippleDelete(
+              clipId: clipId,
+              options: TimelineEditOptions(
+                ripple: ref.read(timelineSnapSettingsProvider).enabled,
+              ),
+            );
             ref.read(editorStateProvider.notifier).deselectClip();
             await haptics.success();
           }
@@ -380,6 +389,17 @@ class _RealProjectMultitrackTimelineState extends ConsumerState<RealProjectMulti
         ),
       );
     }
+  }
+
+  MultitrackClip _findClip(WidgetRef ref, String clipId) {
+    final model = ref.read(realProjectTimelineProvider(widget.projectId)).value;
+    if (model == null) {
+      throw StateError('Timeline is not loaded.');
+    }
+    for (final clip in model.clips) {
+      if (clip.id == clipId) return clip;
+    }
+    throw StateError('Clip $clipId was not found in the loaded timeline.');
   }
 
   Future<bool?> _showDeleteConfirmation(BuildContext context) {
@@ -522,67 +542,43 @@ class _TimelineErrorState extends StatelessWidget {
 class _TimelineEmptyState extends StatelessWidget {
   final VoidCallback onCreateTracks;
 
-  const _TimelineEmptyState({
-    required this.onCreateTracks,
-  });
+  const _TimelineEmptyState({required this.onCreateTracks});
 
   @override
   Widget build(BuildContext context) {
     return Container(
-      padding: const EdgeInsets.all(PremiumSpacing.lg),
       decoration: BoxDecoration(
         color: const Color(0xFF070A11),
         borderRadius: BorderRadius.circular(PremiumRadius.lg),
         border: Border.all(color: AppTheme.borderSubtle),
       ),
+      padding: const EdgeInsets.all(PremiumSpacing.lg),
       child: Center(
-        child: ConstrainedBox(
-          constraints: const BoxConstraints(maxWidth: 430),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Container(
-                width: 64,
-                height: 64,
-                decoration: BoxDecoration(
-                  shape: BoxShape.circle,
-                  gradient: PremiumGradients.brandGlow,
-                  boxShadow: PremiumShadows.glow(AppTheme.accentPrimary),
-                ),
-                child: const Icon(
-                  Icons.view_timeline_rounded,
-                  color: Colors.black,
-                  size: 30,
-                ),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const Icon(Icons.layers_outlined, color: AppTheme.textMuted, size: 34),
+            const SizedBox(height: 12),
+            const Text(
+              'Timeline workspace is not ready',
+              style: TextStyle(
+                color: AppTheme.textPrimary,
+                fontWeight: FontWeight.w900,
               ),
-              const SizedBox(height: 18),
-              const Text(
-                'Create your multitrack workspace',
-                textAlign: TextAlign.center,
-                style: TextStyle(
-                  color: AppTheme.textPrimary,
-                  fontSize: 20,
-                  fontWeight: FontWeight.w900,
-                ),
-              ),
-              const SizedBox(height: 8),
-              const Text(
-                'This project needs V/A tracks before clips can appear on the professional timeline.',
-                textAlign: TextAlign.center,
-                style: TextStyle(
-                  color: AppTheme.textMuted,
-                  fontSize: 13,
-                  height: 1.35,
-                ),
-              ),
-              const SizedBox(height: 18),
-              FilledButton.icon(
-                onPressed: onCreateTracks,
-                icon: const Icon(Icons.add_rounded),
-                label: const Text('Create V/A Tracks'),
-              ),
-            ],
-          ),
+            ),
+            const SizedBox(height: 6),
+            const Text(
+              'Create the default video, overlay, text and audio tracks to start editing.',
+              textAlign: TextAlign.center,
+              style: TextStyle(color: AppTheme.textMuted, fontSize: 12),
+            ),
+            const SizedBox(height: 16),
+            FilledButton.icon(
+              onPressed: onCreateTracks,
+              icon: const Icon(Icons.add_rounded),
+              label: const Text('Create Tracks'),
+            ),
+          ],
         ),
       ),
     );
