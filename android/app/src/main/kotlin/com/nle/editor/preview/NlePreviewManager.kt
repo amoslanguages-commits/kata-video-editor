@@ -20,9 +20,7 @@ class NlePreviewManager(
         renderer.scopeManager = scopeManager
     }
 
-    fun prepare(
-        config: NlePreviewConfig,
-    ) {
+    fun prepare(config: NlePreviewConfig) {
         try {
             val textureId = renderer.prepareFlutterSurface(config)
             val size = renderer.outputSize()
@@ -73,15 +71,11 @@ class NlePreviewManager(
         }
     }
 
-    fun renderFrame(
-        timelineTimeUs: Long,
-    ) {
-        scheduler.seekAndRender(timelineTimeUs)
+    fun renderFrame(timelineTimeUs: Long): NlePreviewFrameResult {
+        return scheduler.seekAndRender(timelineTimeUs)
     }
 
-    fun play(
-        fromTimelineUs: Long,
-    ) {
+    fun play(fromTimelineUs: Long) {
         scheduler.play(fromTimelineUs)
     }
 
