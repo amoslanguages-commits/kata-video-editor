@@ -1,7 +1,10 @@
 import 'dart:convert';
+import 'dart:io';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:share_plus/share_plus.dart';
 
 import 'package:nle_editor/core/theme/app_theme.dart';
 import 'package:nle_editor/data/database/app_database.dart';
@@ -162,6 +165,9 @@ class _ExportJobTile extends ConsumerWidget {
     final viewModel = NleExportJobViewModel(job: job, settings: settings);
     final color = _statusColor(job.status);
     final progress = job.progress.clamp(0, 100) / 100.0;
+    final outputPath = job.outputPath;
+    final hasOutput = outputPath != null && outputPath.isNotEmpty;
+    final outputExists = hasOutput && File(outputPath).existsSync();
 
     return Container(
       padding: const EdgeInsets.all(14),
@@ -213,10 +219,10 @@ class _ExportJobTile extends ConsumerWidget {
             '${job.progress.clamp(0, 100)}% complete',
             style: const TextStyle(color: AppTheme.textMuted, fontSize: 11),
           ),
-          if (job.outputPath != null && job.outputPath!.isNotEmpty) ...[
+          if (hasOutput) ...[
             const SizedBox(height: 8),
             Text(
-              job.outputPath!,
+              outputPath,
               maxLines: 1,
               overflow: TextOverflow.ellipsis,
               style: const TextStyle(color: AppTheme.textSecondary, fontSize: 11),
@@ -232,14 +238,28 @@ class _ExportJobTile extends ConsumerWidget {
             ),
           ],
           const SizedBox(height: 10),
-          Row(
+          Wrap(
+            spacing: 8,
+            runSpacing: 6,
+            crossAxisAlignment: WrapCrossAlignment.center,
             children: [
               TextButton.icon(
                 onPressed: () => _showDetails(context, viewModel),
                 icon: const Icon(Icons.info_outline_rounded, size: 16),
                 label: const Text('Details'),
               ),
-              const Spacer(),
+              if (hasOutput)
+                TextButton.icon(
+                  onPressed: () => _copyOutputPath(context, outputPath),
+                  icon: const Icon(Icons.copy_rounded, size: 16),
+                  label: const Text('Copy Path'),
+                ),
+              if (outputExists && viewModel.isCompleted)
+                TextButton.icon(
+                  onPressed: () => _shareOutput(context, outputPath),
+                  icon: const Icon(Icons.share_rounded, size: 16),
+                  label: const Text('Share'),
+                ),
               if (viewModel.isFailed)
                 TextButton.icon(
                   onPressed: () => _retryExport(context, ref, settings),
@@ -262,6 +282,33 @@ class _ExportJobTile extends ConsumerWidget {
       }
     } catch (_) {}
     return const <String, dynamic>{};
+  }
+
+  Future<void> _copyOutputPath(BuildContext context, String outputPath) async {
+    await Clipboard.setData(ClipboardData(text: outputPath));
+    if (context.mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Export output path copied.')),
+      );
+    }
+  }
+
+  Future<void> _shareOutput(BuildContext context, String outputPath) async {
+    final file = File(outputPath);
+    if (!file.existsSync()) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Export file is no longer available.'),
+          backgroundColor: AppTheme.error,
+        ),
+      );
+      return;
+    }
+
+    await Share.shareXFiles(
+      [XFile(outputPath)],
+      text: 'Exported from Kata Video Editor',
+    );
   }
 
   Future<void> _retryExport(
