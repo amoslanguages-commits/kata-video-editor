@@ -3,11 +3,13 @@ import AVFoundation
 
 final class IosNleNativeProxyRenderer {
     private let eventEmitter: IosNleEventEmitter
+    private let onFinished: ((String) -> Void)?
     private var sessions: [String: AVAssetExportSession] = [:]
     private let lock = NSLock()
 
-    init(eventEmitter: IosNleEventEmitter) {
+    init(eventEmitter: IosNleEventEmitter, onFinished: ((String) -> Void)? = nil) {
         self.eventEmitter = eventEmitter
+        self.onFinished = onFinished
     }
 
     func start(
@@ -54,6 +56,7 @@ final class IosNleNativeProxyRenderer {
 
         session.exportAsynchronously { [weak self, weak session] in
             guard let self, let session else { return }
+            defer { self.onFinished?(jobId) }
             self.lock.lock()
             self.sessions.removeValue(forKey: jobId)
             self.lock.unlock()
@@ -98,6 +101,7 @@ final class IosNleNativeProxyRenderer {
         let session = sessions.removeValue(forKey: jobId)
         lock.unlock()
         session?.cancelExport()
+        onFinished?(jobId)
         return ["success": true, "jobId": jobId, "cancelled": true]
     }
 
