@@ -20,7 +20,7 @@ final class IosNleNativeProxyRenderer {
         outputPath: String,
         profile: [String: Any?]
     ) throws -> [String: Any?] {
-        emit(jobId: jobId, projectId: projectId, type: IosNleEventType.proxyStarted, payload: [
+        emit(jobId: jobId, projectId: projectId, type: "proxy_started", payload: [
             "assetId": assetId,
             "stage": "Preparing",
             "progress": NSNumber(value: 0)
@@ -70,7 +70,7 @@ final class IosNleNativeProxyRenderer {
                 } else {
                     size = 0
                 }
-                self.emit(jobId: jobId, projectId: projectId, type: IosNleEventType.proxyCompleted, payload: [
+                self.emit(jobId: jobId, projectId: projectId, type: "proxy_completed", payload: [
                     "assetId": assetId,
                     "proxyPath": outputPath,
                     "outputPath": outputPath,
@@ -79,13 +79,13 @@ final class IosNleNativeProxyRenderer {
                     "renderer": "ios_avasset_proxy_v1"
                 ])
             case .cancelled:
-                self.emit(jobId: jobId, projectId: projectId, type: IosNleEventType.proxyCancelled, payload: [
+                self.emit(jobId: jobId, projectId: projectId, type: "proxy_cancelled", payload: [
                     "assetId": assetId,
                     "stage": "Cancelled"
                 ])
             default:
                 try? FileManager.default.removeItem(at: outputUrl)
-                self.emit(jobId: jobId, projectId: projectId, type: IosNleEventType.proxyFailed, payload: [
+                self.emit(jobId: jobId, projectId: projectId, type: "proxy_failed", payload: [
                     "assetId": assetId,
                     "stage": "Failed",
                     "errorMessage": session.error?.localizedDescription ?? "iOS proxy export failed."
@@ -112,7 +112,7 @@ final class IosNleNativeProxyRenderer {
                 let progress = min(98, max(1, Int(session.progress * 98.0)))
                 if progress != lastProgress {
                     lastProgress = progress
-                    self?.emit(jobId: jobId, projectId: projectId, type: IosNleEventType.proxyProgress, payload: [
+                    self?.emit(jobId: jobId, projectId: projectId, type: "proxy_progress", payload: [
                         "assetId": assetId,
                         "stage": "Transcoding",
                         "progress": NSNumber(value: progress)
