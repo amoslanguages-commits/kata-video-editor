@@ -1,0 +1,3 @@
+Flutter Analyze trigger
+
+This file is used only to trigger the GitHub Actions workflow after enabling public Actions.
