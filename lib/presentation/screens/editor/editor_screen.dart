@@ -10,9 +10,9 @@ import 'package:nle_editor/native_bridge/native_event.dart';
 import 'package:nle_editor/presentation/providers/editor_providers.dart';
 import 'package:nle_editor/presentation/providers/multitrack_timeline_providers.dart';
 import 'package:nle_editor/presentation/providers/real_multitrack_timeline_providers.dart';
+import 'package:nle_editor/presentation/providers/real_native_preview_provider.dart';
 import 'package:nle_editor/presentation/widgets/panels/tool_panel.dart';
 import 'package:nle_editor/presentation/widgets/preview/dual_preview_area.dart';
-import 'package:nle_editor/presentation/providers/native_true_preview_providers.dart';
 import 'package:nle_editor/presentation/providers/dual_preview_layout_providers.dart';
 import 'package:nle_editor/presentation/widgets/timeline/real_project_multitrack_timeline.dart';
 import 'package:nle_editor/presentation/screens/storage/project_storage_screen.dart';
@@ -36,7 +36,6 @@ import 'package:nle_editor/presentation/widgets/beta/beta_feedback_dialog.dart';
 import 'package:nle_editor/presentation/providers/color_scope_providers.dart';
 import 'package:nle_editor/presentation/widgets/color_scopes/professional_scopes_panel.dart';
 import 'package:nle_editor/presentation/widgets/color_scopes/scope_toggle_button.dart';
-import 'package:nle_editor/presentation/widgets/editor/desktop_editor_layout.dart';
 import 'package:nle_editor/presentation/widgets/editor/desktop_editor_layout.dart';
 import 'package:nle_editor/presentation/widgets/editor/desktop_color_layout.dart';
 import 'package:nle_editor/presentation/widgets/editor/desktop_audio_layout.dart';
@@ -90,6 +89,7 @@ class _EditorScreenState extends ConsumerState<EditorScreen> {
         NativeEventTypes.exportFailed,
         NativeEventTypes.proxyFailed,
         NativeEventTypes.engineError,
+        NativeEventTypes.previewError,
       };
 
       if (errorTypes.contains(event.type)) {
@@ -207,7 +207,7 @@ class _EditorScreenState extends ConsumerState<EditorScreen> {
     ref.invalidate(hasSeenFirstProjectGuideProvider);
   }
 
-  // ─── Resume safety ────────────────────────────────────────────────────────
+  // ─── Resume safety ───────────────────────────────────────────────────────
 
   void _handleResumeSafetyReport(ResumeProjectSafetyReport report) {
     if (!mounted || !report.hasWarnings) return;
@@ -483,12 +483,13 @@ class _EditorScreenState extends ConsumerState<EditorScreen> {
                     final previewWidget = DualPreviewArea(
                       projectId: projectId,
                       onClipInserted: (_) {
-                        ref
-                            .read(nativeTruePreviewControllerProvider(projectId).notifier)
-                            .refreshGraphAndRender(
-                              timelineTimeMicros:
-                                  ref.read(editorStateProvider).currentTimeMicros,
-                            );
+                        final preview = ref.read(realNativePreviewProvider(projectId));
+                        final controller = ref.read(realNativePreviewProvider(projectId).notifier);
+                        if (preview.hasSurface) {
+                          controller.requestFrame(ref.read(editorStateProvider).currentTimeMicros);
+                        } else {
+                          controller.prepare();
+                        }
                       },
                     );
 
@@ -758,89 +759,3 @@ class _EditorScreenState extends ConsumerState<EditorScreen> {
                     onPressed: () {
                       exportNotifier.cancelExport();
                       Navigator.pop(context);
-                    },
-                    child: const Text('Cancel Export'),
-                  ),
-                if (export.progress >= 100)
-                  TextButton(
-                    onPressed: () => Navigator.pop(context),
-                    child: const Text('Done'),
-                  ),
-              ],
-            );
-          },
-        );
-      },
-    );
-  }
-}
-
-class _WatermarkToggle extends ConsumerWidget {
-  final String projectId;
-
-  const _WatermarkToggle({required this.projectId});
-
-  @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    final projectAsync = ref.watch(selectedProjectProvider);
-    final monetization = ref.watch(monetizationProvider);
-
-    return projectAsync.when(
-      data: (project) {
-        if (project == null) return const SizedBox.shrink();
-
-        final hasPro = monetization.entitlement.isPro;
-        final removeWatermark = !project.hasWatermark;
-
-        return Row(
-          mainAxisAlignment: MainAxisAlignment.spaceBetween,
-          children: [
-            Row(
-              children: [
-                Icon(
-                  Icons.branding_watermark_rounded,
-                  size: 20,
-                  color: removeWatermark
-                      ? AppTheme.accentPrimary
-                      : AppTheme.textSecondary,
-                ),
-                const SizedBox(width: 10),
-                const Text(
-                  'Remove Watermark',
-                  style: TextStyle(
-                    color: AppTheme.textPrimary,
-                    fontSize: 13,
-                    fontWeight: FontWeight.w600,
-                  ),
-                ),
-              ],
-            ),
-            Switch(
-              value: removeWatermark,
-              activeColor: AppTheme.accentPrimary,
-              onChanged: (value) async {
-                if (value && !hasPro) {
-                  ProPaywallScreen.show(
-                    context,
-                    requiredFeatureTitle: 'Remove Watermark',
-                    requiredFeatureDescription:
-                        'Remove the editor watermark from all your exports.',
-                  );
-                } else {
-                  await ref.read(projectRepositoryProvider).updateProjectFields(
-                        projectId,
-                        ProjectsCompanion(
-                          hasWatermark: Value(!value),
-                        ),
-                      );
-                }
-              },
-            ),
-          ],
-        );
-      },
-      loading: () => const SizedBox.shrink(),
-      error: (_, __) => const SizedBox.shrink(),
-    );
-  }
-}
