@@ -185,6 +185,20 @@ class CacheIndexService {
     ));
   }
 
+  Future<int> repairMissingCacheReferences(String projectId) async {
+    final index = await rebuildIndex(projectId);
+    var repaired = 0;
+    for (final entry in index.entries) {
+      if (entry.referencedByDatabase && !entry.exists) {
+        repaired += await _clearAssetReference(projectId, entry);
+      }
+    }
+    if (repaired > 0) {
+      await rebuildIndex(projectId);
+    }
+    return repaired;
+  }
+
   Future<CacheCleanupReport> cleanupProjectCache(
     String projectId, {
     CacheCleanupPolicy policy = CacheCleanupPolicy.conservative,
@@ -192,12 +206,14 @@ class CacheIndexService {
     final startedAt = DateTime.now();
     final folders = await projectStorageService.getProjectFolders(projectId);
     final before = await rebuildIndex(projectId);
-    final deleteQueue = _selectCleanupCandidates(before, policy, folders);
+    final staleReferenceRepairs = policy.dryRun ? 0 : await _repairMissingReferencesFromIndex(projectId, before);
+    final refreshedBefore = staleReferenceRepairs > 0 ? await rebuildIndex(projectId) : before;
+    final deleteQueue = _selectCleanupCandidates(refreshedBefore, policy, folders);
     var deletedBytes = 0;
     var deletedFiles = 0;
     final deletedPaths = <String>[];
     final failedPaths = <String>[];
-    final retainedPaths = before.entries.map((entry) => entry.path).toSet();
+    final retainedPaths = refreshedBefore.entries.map((entry) => entry.path).toSet();
 
     for (final entry in deleteQueue) {
       if (!_isDisposablePath(entry.path, folders, includeExports: policy.includeExports)) {
@@ -227,21 +243,31 @@ class CacheIndexService {
       }
     }
 
-    final after = policy.dryRun ? before : await rebuildIndex(projectId);
+    final after = policy.dryRun ? refreshedBefore : await rebuildIndex(projectId);
     final completedAt = DateTime.now();
     return CacheCleanupReport(
       projectId: projectId,
       startedAt: startedAt,
       completedAt: completedAt,
       dryRun: policy.dryRun,
-      beforeBytes: before.totalBytes,
-      afterBytes: policy.dryRun ? before.totalBytes - deletedBytes : after.totalBytes,
+      beforeBytes: refreshedBefore.totalBytes,
+      afterBytes: policy.dryRun ? refreshedBefore.totalBytes - deletedBytes : after.totalBytes,
       deletedBytes: deletedBytes,
       deletedFiles: deletedFiles,
       deletedPaths: deletedPaths,
       failedPaths: failedPaths,
       retainedPaths: retainedPaths.toList()..sort(),
     );
+  }
+
+  Future<int> _repairMissingReferencesFromIndex(String projectId, CacheIndexSnapshot index) async {
+    var repaired = 0;
+    for (final entry in index.entries) {
+      if (entry.referencedByDatabase && !entry.exists) {
+        repaired += await _clearAssetReference(projectId, entry);
+      }
+    }
+    return repaired;
   }
 
   List<CacheIndexEntry> _selectCleanupCandidates(
@@ -415,11 +441,13 @@ class CacheIndexService {
     await file.writeAsString(encoder.convert(snapshot.toJson()), flush: true);
   }
 
-  Future<void> _clearAssetReference(String projectId, CacheIndexEntry entry) async {
-    if (!entry.referencedByDatabase) return;
+  Future<int> _clearAssetReference(String projectId, CacheIndexEntry entry) async {
+    if (!entry.referencedByDatabase) return 0;
+    var updates = 0;
+    final entryPath = p.normalize(entry.path);
     final assets = await assetRepository.getProjectAssets(projectId);
     for (final asset in assets) {
-      if (entry.kind == CacheEntryKind.proxy && asset.proxyPath == entry.path) {
+      if (entry.kind == CacheEntryKind.proxy && _samePath(asset.proxyPath, entryPath)) {
         await assetRepository.updateAssetFields(
           asset.id,
           AssetsCompanion(
@@ -431,7 +459,8 @@ class CacheIndexService {
             proxyFileSize: const Value<int?>(null),
           ),
         );
-      } else if (entry.kind == CacheEntryKind.thumbnail && asset.thumbnailPath == entry.path) {
+        updates++;
+      } else if (entry.kind == CacheEntryKind.thumbnail && _samePath(asset.thumbnailPath, entryPath)) {
         await assetRepository.updateAssetFields(
           asset.id,
           const AssetsCompanion(
@@ -439,7 +468,8 @@ class CacheIndexService {
             thumbnailStatus: Value('pending'),
           ),
         );
-      } else if (entry.kind == CacheEntryKind.waveform && asset.waveformPath == entry.path) {
+        updates++;
+      } else if (entry.kind == CacheEntryKind.waveform && _samePath(asset.waveformPath, entryPath)) {
         await assetRepository.updateAssetFields(
           asset.id,
           const AssetsCompanion(
@@ -447,8 +477,10 @@ class CacheIndexService {
             waveformStatus: Value('pending'),
           ),
         );
+        updates++;
       }
     }
+    return updates;
   }
 
   bool _isDisposablePath(
@@ -467,6 +499,11 @@ class CacheIndexService {
       if (includeExports) folders.exports,
     ].map(p.normalize).toList();
     return roots.any((root) => p.equals(normalized, root) || p.isWithin(root, normalized));
+  }
+
+  bool _samePath(String? left, String rightNormalized) {
+    if (left == null || left.trim().isEmpty) return false;
+    return p.equals(p.normalize(left), rightNormalized);
   }
 
   String? _normalizePath(String? path) {
