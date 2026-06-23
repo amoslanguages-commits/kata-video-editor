@@ -10,6 +10,7 @@ flutter test test/domain/timeline
 bash scripts/cache_index_smoke.sh
 bash scripts/proxy_smoke_android.sh
 bash scripts/export_smoke_android.sh
+bash scripts/audio_mixdown_export_smoke.sh
 
 if command -v xcodebuild >/dev/null 2>&1; then
   bash scripts/proxy_smoke_ios.sh
@@ -19,8 +20,8 @@ else
 fi
 
 echo "Production export smoke checklist:"
-echo "1. Start export with a valid timeline and verify preflight is stored in ExportJobs.settings."
-echo "2. Start export with missing media and verify job status becomes failed before native render starts."
-echo "3. Complete native export and verify output file exists and is non-empty before status=completed."
-echo "4. Force native completed event with missing output and verify status=failed."
-echo "5. Run the same export on iOS real device with single clip, overlays, proxy path, and original path modes."
+echo "1. Verify preflight data is stored in ExportJobs.settings."
+echo "2. Verify missing media fails before native rendering."
+echo "3. Verify completed exports have a real non-empty output file."
+echo "4. Verify invalid native completion becomes failed."
+echo "5. Verify audio mix, proxy mode, original mode, and retry cases."
