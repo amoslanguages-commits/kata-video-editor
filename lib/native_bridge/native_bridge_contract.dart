@@ -37,19 +37,13 @@ abstract class NativeBridgeContract {
 
   Future<NativeCommandResult> play(String projectId) {
     return sendCommand(
-      NativeCommand(
-        type: NativeCommandTypes.play,
-        projectId: projectId,
-      ),
+      NativeCommand(type: NativeCommandTypes.play, projectId: projectId),
     );
   }
 
   Future<NativeCommandResult> pause(String projectId) {
     return sendCommand(
-      NativeCommand(
-        type: NativeCommandTypes.pause,
-        projectId: projectId,
-      ),
+      NativeCommand(type: NativeCommandTypes.pause, projectId: projectId),
     );
   }
 
@@ -97,9 +91,7 @@ abstract class NativeBridgeContract {
       NativeCommand(
         type: NativeCommandTypes.cancelJob,
         projectId: projectId,
-        payload: {
-          'jobId': jobId,
-        },
+        payload: {'jobId': jobId},
       ),
     );
   }
@@ -127,15 +119,11 @@ abstract class NativeBridgeContract {
     );
   }
 
-  Future<NativeCommandResult> cancelProxyJob({
-    required String jobId,
-  }) {
+  Future<NativeCommandResult> cancelProxyJob({required String jobId}) {
     return sendCommand(
       NativeCommand(
         type: NativeCommandTypes.cancelProxyJob,
-        payload: {
-          'jobId': jobId,
-        },
+        payload: {'jobId': jobId},
       ),
     );
   }
@@ -161,14 +149,97 @@ abstract class NativeBridgeContract {
     );
   }
 
-  Future<NativeCommandResult> cancelExportJob({
-    required String jobId,
-  }) {
+  Future<NativeCommandResult> cancelExportJob({required String jobId}) {
     return sendCommand(
       NativeCommand(
         type: NativeCommandTypes.cancelExportJob,
+        payload: {'jobId': jobId},
+      ),
+    );
+  }
+
+  Future<NativeCommandResult> pauseExportJob({required String jobId}) {
+    return sendCommand(
+      NativeCommand(
+        type: NativeCommandTypes.pauseExportJob,
+        payload: {'jobId': jobId},
+      ),
+    );
+  }
+
+  Future<NativeCommandResult> resumeExportJob({required String jobId}) {
+    return sendCommand(
+      NativeCommand(
+        type: NativeCommandTypes.resumeExportJob,
+        payload: {'jobId': jobId},
+      ),
+    );
+  }
+
+  Future<NativeCommandResult> openExportFile({required String outputPath}) {
+    return sendCommand(
+      NativeCommand(
+        type: NativeCommandTypes.openExportFile,
+        payload: {'outputPath': outputPath},
+      ),
+    );
+  }
+
+  Future<NativeCommandResult> openExportFolder({required String outputPath}) {
+    return sendCommand(
+      NativeCommand(
+        type: NativeCommandTypes.openExportFolder,
+        payload: {'outputPath': outputPath},
+      ),
+    );
+  }
+
+  Future<NativeCommandResult> checkExportPermissions({
+    required Map<String, dynamic> settings,
+  }) {
+    return sendCommand(
+      NativeCommand(
+        type: NativeCommandTypes.checkExportPermissions,
+        payload: {'settings': settings},
+      ),
+    );
+  }
+
+  Future<NativeCommandResult> scheduleExportNotification({
+    required String jobId,
+    required String title,
+    required String body,
+  }) {
+    return sendCommand(
+      NativeCommand(
+        type: NativeCommandTypes.scheduleExportNotification,
+        payload: {'jobId': jobId, 'title': title, 'body': body},
+      ),
+    );
+  }
+
+  Future<NativeCommandResult> recoverExportJobs({required String projectId}) {
+    return sendCommand(
+      NativeCommand(
+        type: NativeCommandTypes.recoverExportJobs,
+        projectId: projectId,
+        payload: const {},
+      ),
+    );
+  }
+
+  Future<NativeCommandResult> validateExportGraph({
+    required String projectId,
+    required String renderGraphJson,
+    required Map<String, dynamic> settings,
+  }) {
+    return sendCommand(
+      NativeCommand(
+        type: NativeCommandTypes.validateExportGraph,
+        projectId: projectId,
         payload: {
-          'jobId': jobId,
+          'renderGraphJson': renderGraphJson,
+          'settings': settings,
         },
       ),
     );
@@ -183,10 +254,7 @@ abstract class NativeBridgeContract {
       NativeCommand(
         type: NativeCommandTypes.createPreviewTexture,
         projectId: projectId,
-        payload: {
-          'width': width,
-          'height': height,
-        },
+        payload: {'width': width, 'height': height},
       ),
     );
   }
@@ -199,9 +267,7 @@ abstract class NativeBridgeContract {
       NativeCommand(
         type: NativeCommandTypes.attachPreviewTexture,
         projectId: projectId,
-        payload: {
-          'textureId': textureId,
-        },
+        payload: {'textureId': textureId},
       ),
     );
   }
@@ -214,11 +280,7 @@ abstract class NativeBridgeContract {
     return sendCommand(
       NativeCommand(
         type: NativeCommandTypes.resizePreviewTexture,
-        payload: {
-          'textureId': textureId,
-          'width': width,
-          'height': height,
-        },
+        payload: {'textureId': textureId, 'width': width, 'height': height},
       ),
     );
   }
@@ -240,15 +302,11 @@ abstract class NativeBridgeContract {
     );
   }
 
-  Future<NativeCommandResult> disposePreviewTexture({
-    required int textureId,
-  }) {
+  Future<NativeCommandResult> disposePreviewTexture({required int textureId}) {
     return sendCommand(
       NativeCommand(
         type: NativeCommandTypes.disposePreviewTexture,
-        payload: {
-          'textureId': textureId,
-        },
+        payload: {'textureId': textureId},
       ),
     );
   }
@@ -261,16 +319,12 @@ abstract class NativeBridgeContract {
       NativeCommand(
         type: NativeCommandTypes.setPlaybackRate,
         projectId: projectId,
-        payload: {
-          'rate': rate,
-        },
+        payload: {'rate': rate},
       ),
     );
   }
 
-  Future<NativeCommandResult> getAudioEngineState({
-    required String projectId,
-  }) {
+  Future<NativeCommandResult> getAudioEngineState({required String projectId}) {
     return sendCommand(
       NativeCommand(
         type: NativeCommandTypes.getAudioEngineState,
@@ -299,7 +353,7 @@ abstract class NativeBridgeContract {
         type: NativeCommandTypes.renderGpuPreviewFrame,
         projectId: projectId,
         payload: {
-          'renderGraphJson':    renderGraphJson,
+          'renderGraphJson': renderGraphJson,
           'timelineTimeMicros': timelineTimeMicros,
         },
       ),
@@ -312,9 +366,7 @@ abstract class NativeBridgeContract {
     return sendCommand(
       NativeCommand(
         type: NativeCommandTypes.qaValidateRenderGraph,
-        payload: {
-          'renderGraphJson': renderGraphJson,
-        },
+        payload: {'renderGraphJson': renderGraphJson},
       ),
     );
   }
