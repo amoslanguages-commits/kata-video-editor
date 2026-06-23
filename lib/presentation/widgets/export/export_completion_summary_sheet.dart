@@ -1,3 +1,5 @@
+import 'dart:io';
+
 import 'package:flutter/material.dart';
 
 import 'package:nle_editor/core/theme/app_theme.dart';
@@ -10,7 +12,11 @@ Future<void> showExportCompletionSummary({
   final job = viewModel.job;
   final outputPath = job.outputPath ?? 'No output path saved';
   final outputFileName = viewModel.settings['outputFileName']?.toString() ??
-      outputPath.split('/').last;
+      outputPath.split(Platform.pathSeparator).last;
+  final file = job.outputPath == null ? null : File(job.outputPath!);
+  final fileSize = file != null && file.existsSync()
+      ? _formatBytes(file.lengthSync())
+      : 'Unavailable';
 
   await showModalBottomSheet<void>(
     context: context,
@@ -47,6 +53,7 @@ Future<void> showExportCompletionSummary({
                 const SizedBox(height: 16),
                 _SummaryCard(
                   fileName: outputFileName,
+                  fileSize: fileSize,
                   preset: viewModel.presetName,
                   resolution: viewModel.resolutionLabel,
                   bitrate: viewModel.bitrateLabel,
@@ -69,6 +76,7 @@ Future<void> showExportCompletionSummary({
 
 class _SummaryCard extends StatelessWidget {
   final String fileName;
+  final String fileSize;
   final String preset;
   final String resolution;
   final String bitrate;
@@ -77,6 +85,7 @@ class _SummaryCard extends StatelessWidget {
 
   const _SummaryCard({
     required this.fileName,
+    required this.fileSize,
     required this.preset,
     required this.resolution,
     required this.bitrate,
@@ -98,6 +107,7 @@ class _SummaryCard extends StatelessWidget {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           _Row(label: 'File', value: fileName),
+          _Row(label: 'Size', value: fileSize),
           _Row(label: 'Status', value: status),
           _Row(label: 'Preset', value: preset),
           _Row(label: 'Resolution', value: resolution),
@@ -141,4 +151,12 @@ class _Row extends StatelessWidget {
       ),
     );
   }
+}
+
+String _formatBytes(int bytes) {
+  const gb = 1024 * 1024 * 1024;
+  const mb = 1024 * 1024;
+  if (bytes >= gb) return '${(bytes / gb).toStringAsFixed(2)} GB';
+  if (bytes >= mb) return '${(bytes / mb).toStringAsFixed(1)} MB';
+  return '$bytes B';
 }
