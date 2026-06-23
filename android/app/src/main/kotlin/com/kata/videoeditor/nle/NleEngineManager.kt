@@ -2,6 +2,7 @@ package com.kata.videoeditor.nle
 
 import android.content.Context
 import com.kata.videoeditor.nle.export.NleNativeExportRenderer
+import com.kata.videoeditor.nle.proxy.NleNativeProxyRenderer
 import com.nle.editor.preview.NleFlutterPreviewTextureManager
 import com.nle.editor.preview.NlePreviewConfig
 import com.nle.editor.preview.NlePreviewEventSink
@@ -25,6 +26,7 @@ class NleEngineManager(
     private val truePreviewManagers = mutableMapOf<String, NlePreviewManager>()
     private val scopeManager = NleScopeManager()
     private val nativeExportRenderer = NleNativeExportRenderer(eventEmitter)
+    private val nativeProxyRenderer = NleNativeProxyRenderer(eventEmitter)
 
     fun initialize(): Map<String, Any?> {
         initialized = true
@@ -147,12 +149,19 @@ class NleEngineManager(
 
     fun startProxyJob(projectId: String?, jobId: String, assetId: String, inputPath: String, outputPath: String, profileMap: Map<String, Any?>, commandId: String?): Map<String, Any?> {
         requireInit()
-        return mapOf("jobId" to jobId, "accepted" to true)
+        return nativeProxyRenderer.start(
+            projectId = projectId,
+            jobId = jobId,
+            assetId = assetId,
+            inputPath = inputPath,
+            outputPath = outputPath,
+            profileMap = profileMap,
+        )
     }
 
     fun cancelProxyJob(jobId: String, commandId: String?): Map<String, Any?> {
         requireInit()
-        return mapOf("jobId" to jobId, "cancelled" to true)
+        return nativeProxyRenderer.cancel(jobId)
     }
 
     fun startExportJob(projectId: String?, jobId: String, renderGraphJson: String, outputPath: String, profileMap: Map<String, Any?>, commandId: String?): Map<String, Any?> {
@@ -222,7 +231,7 @@ class NleEngineManager(
 
     fun renderPreviewPlaceholder(textureId: Long, label: String, playheadMicros: Long, commandId: String?): Map<String, Any?> {
         requireInit()
-        throw IllegalStateException("Placeholder preview rendering is disabled in full-native mode.")
+        throw IllegalStateException("Native preview placeholder rendering is disabled.")
     }
 
     fun disposePreviewTexture(textureId: Long, commandId: String?): Map<String, Any?> {
