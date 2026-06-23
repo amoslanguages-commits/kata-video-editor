@@ -146,8 +146,8 @@ class RealNativePreviewController extends StateNotifier<NativePreviewSessionStat
     );
   }
 
-  Future<void> close() async {
-    await _sub?.cancel();
+  void close() {
+    _sub?.cancel();
     _sub = null;
   }
 }
