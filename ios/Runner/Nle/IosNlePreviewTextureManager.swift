@@ -32,14 +32,15 @@ final class IosNlePreviewTextureManager {
         }
         textures[textureId] = texture
 
+        var payload = texture.toMap()
+        payload["monitorId"] = monitorId
+
         eventEmitter.emit(
             IosNleEvent(
                 type: "preview_texture_ready",
                 projectId: projectId,
                 sessionId: sessionId,
-                payload: texture.toMap().merging([
-                    "monitorId": monitorId
-                ]) { current, _ in current }
+                payload: payload
             )
         )
 
@@ -115,25 +116,26 @@ final class IosNlePreviewTextureManager {
         try texture.render(image: image)
         textureRegistry.textureFrameAvailable(textureId)
 
+        var payload = texture.toMap()
+        payload["monitorId"] = monitorId
+        payload["timelineTimeUs"] = NSNumber(value: timelineMicros)
+        payload["sourceTimeUs"] = NSNumber(value: sourceMicros)
+        payload["assetPath"] = assetPath
+
         eventEmitter.emit(
             IosNleEvent(
                 type: "preview_frame_rendered",
                 projectId: projectId,
                 sessionId: sessionId,
-                payload: texture.toMap().merging([
-                    "monitorId": monitorId,
-                    "timelineTimeUs": timelineMicros,
-                    "sourceTimeUs": sourceMicros,
-                    "assetPath": assetPath
-                ]) { current, _ in current }
+                payload: payload
             )
         )
 
         return [
             "success": true,
             "previewTexture": texture.toMap(),
-            "timelineTimeUs": timelineMicros,
-            "sourceTimeUs": sourceMicros,
+            "timelineTimeUs": NSNumber(value: timelineMicros),
+            "sourceTimeUs": NSNumber(value: sourceMicros),
             "monitorId": monitorId
         ]
     }
@@ -189,7 +191,7 @@ final class IosNlePreviewTextureManager {
                 projectId: texture.projectId,
                 sessionId: texture.sessionId,
                 payload: [
-                    "textureId": textureId,
+                    "textureId": NSNumber(value: textureId),
                     "platform": "ios"
                 ]
             )
@@ -197,7 +199,7 @@ final class IosNlePreviewTextureManager {
 
         return [
             "success": true,
-            "textureId": textureId
+            "textureId": NSNumber(value: textureId)
         ]
     }
 
