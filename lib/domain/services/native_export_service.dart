@@ -186,6 +186,7 @@ class NativeExportService {
     final text = '${result.errorCode ?? ''} ${result.message ?? ''}'.toLowerCase();
     return text.contains('not implemented') ||
         text.contains('no implementation') ||
+        text.contains('not supported') ||
         text.contains('missingplugin') ||
         text.contains('unknown method') ||
         text.contains('unimplemented') ||
