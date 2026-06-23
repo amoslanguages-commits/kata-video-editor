@@ -16,7 +16,7 @@ class NleNativeExportRenderer(
     private val eventEmitter: NleNativeEventEmitter,
 ) {
     private val parser = NleTrueExportGraphParser()
-    private val runningJobs = ConcurrentHashMap<String, ExportCancellationToken>()
+    private val runningJobs = ConcurrentHashMap<String, NleExportCancellationToken>()
 
     fun start(
         projectId: String?,
@@ -30,15 +30,15 @@ class NleNativeExportRenderer(
         }
 
         val safeProjectId = projectId ?: ""
-        val width = profileMap.intValue("width")
-            ?: profileMap.intValue("targetWidth")
-            ?: profileMap.intValue("outputWidth")
+        val width = profileMap.exportInt("width")
+            ?: profileMap.exportInt("targetWidth")
+            ?: profileMap.exportInt("outputWidth")
             ?: 1920
-        val height = profileMap.intValue("height")
-            ?: profileMap.intValue("resolution")
-            ?: profileMap.intValue("targetHeight")
+        val height = profileMap.exportInt("height")
+            ?: profileMap.exportInt("resolution")
+            ?: profileMap.exportInt("targetHeight")
             ?: 1080
-        val frameRate = profileMap.intValue("frameRate") ?: 30
+        val frameRate = profileMap.exportInt("frameRate") ?: 30
 
         val timeline = parser.parse(
             projectId = safeProjectId,
@@ -48,21 +48,54 @@ class NleNativeExportRenderer(
             frameRate = frameRate,
         )
 
-        val token = ExportCancellationToken()
+        val token = NleExportCancellationToken()
         runningJobs[jobId] = token
 
         emit(jobId, safeProjectId, "export_started", mapOf("stage" to "Preparing", "progress" to 0))
 
         thread(name = "nle-native-export-$jobId") {
             try {
-                renderPassThroughSingleClip(
-                    jobId = jobId,
-                    projectId = safeProjectId,
-                    timeline = timeline,
-                    outputPath = outputPath,
-                    token = token,
-                )
+                val rendererName = if (requiresCompositedExport(timeline)) {
+                    NleCompositedExportRenderer { type, payload ->
+                        emit(jobId, safeProjectId, type, payload)
+                    }.render(
+                        jobId = jobId,
+                        renderGraphJson = renderGraphJson,
+                        outputPath = outputPath,
+                        profileMap = profileMap,
+                        token = token,
+                    )
+                    "android_media_codec_compositor_v1"
+                } else {
+                    renderPassThroughSingleClip(
+                        jobId = jobId,
+                        projectId = safeProjectId,
+                        timeline = timeline,
+                        outputPath = outputPath,
+                        token = token,
+                    )
+                    "android_media_muxer_v1"
+                }
                 runningJobs.remove(jobId)
+                val outputFile = File(outputPath)
+                emit(
+                    jobId,
+                    safeProjectId,
+                    "export_completed",
+                    mapOf(
+                        "stage" to "Complete",
+                        "progress" to 100,
+                        "result" to mapOf(
+                            "outputPath" to outputPath,
+                            "fileSize" to outputFile.length(),
+                            "renderer" to rendererName,
+                        ),
+                    ),
+                )
+            } catch (cancelled: NleExportCancelledException) {
+                runningJobs.remove(jobId)
+                File(outputPath).delete()
+                emit(jobId, safeProjectId, "export_cancelled", mapOf("stage" to "Cancelled"))
             } catch (error: Throwable) {
                 runningJobs.remove(jobId)
                 val message = error.message ?: error.toString()
@@ -70,14 +103,23 @@ class NleNativeExportRenderer(
             }
         }
 
-        return mapOf("jobId" to jobId, "accepted" to true, "nativeRenderer" to "android_media_muxer_v1")
+        return mapOf("jobId" to jobId, "accepted" to true, "nativeRenderer" to "android_native_export_v2")
     }
 
     fun cancel(jobId: String): Map<String, Any?> {
         val token = runningJobs.remove(jobId)
         token?.cancelled = true
-        emit(jobId, null, "export_cancelled", mapOf("stage" to "Cancelled"))
         return mapOf("jobId" to jobId, "cancelled" to true)
+    }
+
+    private fun requiresCompositedExport(timeline: NleTrueExportTimeline): Boolean {
+        if (timeline.visualClips.size != 1) return true
+        val clip = timeline.visualClips.first()
+        if (clip.clipType != "video") return true
+        if (clip.speed != 1.0) return true
+        if (clip.rotation != 0f || clip.scale != 1f || clip.positionX != 0f || clip.positionY != 0f || clip.opacity != 1f) return true
+        if (clip.brightness != 0f || clip.contrast != 1f || clip.saturation != 1f) return true
+        return false
     }
 
     private fun renderPassThroughSingleClip(
@@ -85,23 +127,14 @@ class NleNativeExportRenderer(
         projectId: String,
         timeline: NleTrueExportTimeline,
         outputPath: String,
-        token: ExportCancellationToken,
+        token: NleExportCancellationToken,
     ) {
         val visualClips = timeline.visualClips.filter { it.clipType == "video" }
         if (visualClips.size != 1 || timeline.visualClips.size != 1) {
-            throw UnsupportedOperationException(
-                "Native composited export requires the next renderer stage. Current Android native exporter supports exactly one video clip without overlays/text."
-            )
+            throw IllegalStateException("Pass-through export requires exactly one video clip.")
         }
 
         val clip = visualClips.first()
-        if (clip.speed != 1.0) {
-            throw UnsupportedOperationException("Native pass-through export does not support speed changes yet.")
-        }
-        if (clip.rotation != 0f || clip.scale != 1f || clip.positionX != 0f || clip.positionY != 0f || clip.opacity != 1f) {
-            throw UnsupportedOperationException("Native pass-through export does not support transform/composited clips yet.")
-        }
-
         val asset = timeline.assetsById[clip.assetId]
             ?: throw IllegalStateException("Export asset for clip ${clip.id} was not found.")
         if (!asset.hasVideo) {
@@ -131,7 +164,7 @@ class NleNativeExportRenderer(
             val totalTracks = muxerTrackMap.size.coerceAtLeast(1)
             var completedTracks = 0
             for ((sourceTrack, muxerTrack) in muxerTrackMap) {
-                if (token.cancelled) throw ExportCancelledException()
+                if (token.cancelled) throw NleExportCancelledException()
                 copyTrackSamples(
                     assetPath = asset.path,
                     sourceTrack = sourceTrack,
@@ -149,10 +182,6 @@ class NleNativeExportRenderer(
             }
 
             emit(jobId, projectId, "export_progress", mapOf("stage" to "Finalizing", "progress" to 98))
-        } catch (cancelled: ExportCancelledException) {
-            outputFile.delete()
-            emit(jobId, projectId, "export_cancelled", mapOf("stage" to "Cancelled"))
-            return
         } finally {
             try { muxer?.stop() } catch (_: Throwable) {}
             try { muxer?.release() } catch (_: Throwable) {}
@@ -161,21 +190,6 @@ class NleNativeExportRenderer(
         if (!outputFile.exists() || outputFile.length() <= 0L) {
             throw IllegalStateException("Native export completed but output file was not created.")
         }
-
-        emit(
-            jobId,
-            projectId,
-            "export_completed",
-            mapOf(
-                "stage" to "Complete",
-                "progress" to 100,
-                "result" to mapOf(
-                    "outputPath" to outputPath,
-                    "fileSize" to outputFile.length(),
-                    "renderer" to "android_media_muxer_v1",
-                ),
-            ),
-        )
     }
 
     private fun readSupportedTrackFormats(path: String): List<Pair<Int, MediaFormat>> {
@@ -207,7 +221,7 @@ class NleNativeExportRenderer(
         projectId: String,
         baseProgress: Int,
         progressSpan: Int,
-        token: ExportCancellationToken,
+        token: NleExportCancellationToken,
     ) {
         val extractor = MediaExtractor()
         try {
@@ -251,7 +265,7 @@ class NleNativeExportRenderer(
                 }
                 extractor.advance()
             }
-            if (token.cancelled) throw ExportCancelledException()
+            if (token.cancelled) throw NleExportCancelledException()
         } finally {
             try { extractor.release() } catch (_: Throwable) {}
         }
@@ -266,24 +280,5 @@ class NleNativeExportRenderer(
                 payload = payload,
             )
         )
-    }
-}
-
-private class ExportCancellationToken {
-    @Volatile var cancelled: Boolean = false
-}
-
-private class ExportCancelledException : RuntimeException("Export cancelled")
-
-private fun Map<String, Any?>.intValue(key: String): Int? {
-    val value = this[key] ?: return null
-    return when (value) {
-        is Int -> value
-        is Long -> value.toInt()
-        is Double -> value.toInt()
-        is Float -> value.toInt()
-        is Number -> value.toInt()
-        is String -> value.toIntOrNull()
-        else -> null
     }
 }
