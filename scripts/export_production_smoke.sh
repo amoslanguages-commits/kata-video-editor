@@ -11,6 +11,13 @@ bash scripts/cache_index_smoke.sh
 bash scripts/proxy_smoke_android.sh
 bash scripts/export_smoke_android.sh
 
+if command -v xcodebuild >/dev/null 2>&1; then
+  bash scripts/proxy_smoke_ios.sh
+  bash scripts/export_smoke_ios.sh
+else
+  echo "xcodebuild not found; skipping iOS smoke scripts on this machine."
+fi
+
 echo "Production export smoke checklist:"
 echo "1. Start export with a valid timeline and verify preflight is stored in ExportJobs.settings."
 echo "2. Start export with missing media and verify job status becomes failed before native render starts."
