@@ -58,24 +58,27 @@ class NleCompositedExportRenderer(
         var muxerTrack = -1
 
         try {
+            val activeEncoder = MediaCodec.createEncoderByType(MediaFormat.MIMETYPE_VIDEO_AVC)
+            encoder = activeEncoder
             val format = MediaFormat.createVideoFormat(MediaFormat.MIMETYPE_VIDEO_AVC, width, height).apply {
                 setInteger(MediaFormat.KEY_COLOR_FORMAT, MediaCodecInfo.CodecCapabilities.COLOR_FormatSurface)
                 setInteger(MediaFormat.KEY_BIT_RATE, bitRate)
                 setInteger(MediaFormat.KEY_FRAME_RATE, frameRate)
                 setInteger(MediaFormat.KEY_I_FRAME_INTERVAL, 1)
             }
-            encoder = MediaCodec.createEncoderByType(MediaFormat.MIMETYPE_VIDEO_AVC)
-            encoder.configure(format, null, null, MediaCodec.CONFIGURE_FLAG_ENCODE)
-            val inputSurface = encoder.createInputSurface()
-            encoder.start()
+            activeEncoder.configure(format, null, null, MediaCodec.CONFIGURE_FLAG_ENCODE)
+            val inputSurface = activeEncoder.createInputSurface()
+            activeEncoder.start()
 
-            muxer = MediaMuxer(outputPath, MediaMuxer.OutputFormat.MUXER_OUTPUT_MPEG_4)
+            val activeMuxer = MediaMuxer(outputPath, MediaMuxer.OutputFormat.MUXER_OUTPUT_MPEG_4)
+            muxer = activeMuxer
 
-            egl = NlePreviewEglRenderer()
-            egl.initialize(inputSurface)
-            egl.makeCurrent()
+            val activeEgl = NlePreviewEglRenderer()
+            egl = activeEgl
+            activeEgl.initialize(inputSurface)
+            activeEgl.makeCurrent()
 
-            textureProvider = NleDefaultLayerTextureProvider(
+            val activeTextureProvider = NleDefaultLayerTextureProvider(
                 videoTextureSource = NlePreviewVideoTextureSource(
                     graph = graph,
                     decoderPool = decoderPool,
@@ -84,14 +87,17 @@ class NleCompositedExportRenderer(
                 outputWidth = width,
                 outputHeight = height,
             )
-            compositor = NleMultilayerCompositor(textureProvider)
+            textureProvider = activeTextureProvider
+
+            val activeCompositor = NleMultilayerCompositor(activeTextureProvider)
+            compositor = activeCompositor
 
             var frameIndex = 0L
             while (frameIndex < totalFrames) {
                 if (token.cancelled) throw NleExportCancelledException()
                 val timelineUs = (frameIndex * frameStepUs).coerceAtMost(durationUs - 1L)
-                egl.makeCurrent()
-                compositor.renderFrame(
+                activeEgl.makeCurrent()
+                activeCompositor.renderFrame(
                     graph = graph,
                     timelineTimeUs = timelineUs,
                     outputWidth = width,
@@ -99,11 +105,11 @@ class NleCompositedExportRenderer(
                     resolvedColorPipeline = null,
                 )
                 android.opengl.EGLES20.glFinish()
-                egl.setPresentationTimeNanos(timelineUs * 1000L)
-                egl.swapBuffers()
+                activeEgl.setPresentationTimeNanos(timelineUs * 1000L)
+                activeEgl.swapBuffers()
                 drainEncoder(
-                    encoder = encoder,
-                    muxer = muxer,
+                    encoder = activeEncoder,
+                    muxer = activeMuxer,
                     endOfStream = false,
                     muxerStarted = muxerStarted,
                     currentTrack = muxerTrack,
@@ -119,10 +125,10 @@ class NleCompositedExportRenderer(
                 frameIndex += 1
             }
 
-            encoder.signalEndOfInputStream()
+            activeEncoder.signalEndOfInputStream()
             drainEncoder(
-                encoder = encoder,
-                muxer = muxer,
+                encoder = activeEncoder,
+                muxer = activeMuxer,
                 endOfStream = true,
                 muxerStarted = muxerStarted,
                 currentTrack = muxerTrack,
