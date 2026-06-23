@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:uuid/uuid.dart';
 
 import 'package:nle_editor/core/theme/app_theme.dart';
+import 'package:nle_editor/domain/export/export_filename_builder.dart';
 import 'package:nle_editor/domain/export/export_preset_builder_models.dart';
 import 'package:nle_editor/domain/export/export_quality_advisor.dart';
 import 'package:nle_editor/presentation/providers/editor_providers.dart';
@@ -68,52 +69,61 @@ class _ExportPresetBuilderPanelState
           final builtIn = presets.where((preset) => preset.isBuiltIn).toList();
           final custom = presets.where((preset) => !preset.isBuiltIn).toList();
 
-          return ListView(
-            padding: const EdgeInsets.all(16),
-            children: [
-              const _PresetHeader(),
-              const SizedBox(height: 14),
-              _BuilderCard(
-                saving: _saving,
-                nameController: _nameController,
-                widthController: _widthController,
-                heightController: _heightController,
-                bitrateController: _bitrateController,
-                frameRate: _frameRate,
-                format: _format,
-                platform: _platform,
-                removeWatermark: _removeWatermark,
-                onFrameRateChanged: (value) => setState(() => _frameRate = value),
-                onFormatChanged: (value) => setState(() => _format = value),
-                onPlatformChanged: (value) => setState(() => _platform = value),
-                onWatermarkChanged: (value) => setState(() => _removeWatermark = value),
-                onSave: _savePreset,
-              ),
-              const SizedBox(height: 20),
-              const _SectionTitle('Built-in Platform Presets'),
-              const SizedBox(height: 10),
-              ...builtIn.map(
-                (preset) => _PresetCard(
-                  preset: preset,
-                  isExporting: _exportingPresetId == preset.id,
-                  onUse: () => _startExportWithPreset(preset),
-                ),
-              ),
-              const SizedBox(height: 20),
-              const _SectionTitle('My Custom Presets'),
-              const SizedBox(height: 10),
-              if (custom.isEmpty)
-                const _EmptyCustomPresets()
-              else
-                ...custom.map(
-                  (preset) => _PresetCard(
-                    preset: preset,
-                    isExporting: _exportingPresetId == preset.id,
-                    onUse: () => _startExportWithPreset(preset),
-                    onRemove: () => _removePreset(preset.id),
+          return FutureBuilder(
+            future: ref.read(projectRepositoryProvider).getProject(widget.projectId),
+            builder: (context, snapshot) {
+              final projectName = snapshot.data?.name ?? 'Project';
+
+              return ListView(
+                padding: const EdgeInsets.all(16),
+                children: [
+                  const _PresetHeader(),
+                  const SizedBox(height: 14),
+                  _BuilderCard(
+                    saving: _saving,
+                    nameController: _nameController,
+                    widthController: _widthController,
+                    heightController: _heightController,
+                    bitrateController: _bitrateController,
+                    frameRate: _frameRate,
+                    format: _format,
+                    platform: _platform,
+                    removeWatermark: _removeWatermark,
+                    onFrameRateChanged: (value) => setState(() => _frameRate = value),
+                    onFormatChanged: (value) => setState(() => _format = value),
+                    onPlatformChanged: (value) => setState(() => _platform = value),
+                    onWatermarkChanged: (value) => setState(() => _removeWatermark = value),
+                    onSave: _savePreset,
                   ),
-                ),
-            ],
+                  const SizedBox(height: 20),
+                  const _SectionTitle('Built-in Platform Presets'),
+                  const SizedBox(height: 10),
+                  ...builtIn.map(
+                    (preset) => _PresetCard(
+                      preset: preset,
+                      previewFileName: _buildOutputFileName(preset, projectName),
+                      isExporting: _exportingPresetId == preset.id,
+                      onUse: () => _startExportWithPreset(preset),
+                    ),
+                  ),
+                  const SizedBox(height: 20),
+                  const _SectionTitle('My Custom Presets'),
+                  const SizedBox(height: 10),
+                  if (custom.isEmpty)
+                    const _EmptyCustomPresets()
+                  else
+                    ...custom.map(
+                      (preset) => _PresetCard(
+                        preset: preset,
+                        previewFileName: _buildOutputFileName(preset, projectName),
+                        isExporting: _exportingPresetId == preset.id,
+                        onUse: () => _startExportWithPreset(preset),
+                        onRemove: () => _removePreset(preset.id),
+                      ),
+                    ),
+                ],
+              );
+            },
           );
         },
       ),
@@ -214,15 +224,24 @@ class _ExportPresetBuilderPanelState
       if (!shouldContinue) return;
     }
 
+    final projectName = project?.name ?? 'Project';
+    final outputFileName = _buildOutputFileName(preset, projectName);
+    final settings = {
+      ...preset.exportSettings,
+      'presetName': preset.name,
+      'filenamePattern': ExportFilenamePatterns.defaultPattern,
+      'outputFileName': outputFileName,
+    };
+
     setState(() => _exportingPresetId = preset.id);
     try {
       await ref.read(nativeExportServiceProvider).startExport(
             projectId: widget.projectId,
-            settings: preset.exportSettings,
+            settings: settings,
           );
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('${preset.name} export started.')),
+          SnackBar(content: Text('${preset.name} export started: $outputFileName')),
         );
       }
     } catch (error) {
@@ -237,6 +256,18 @@ class _ExportPresetBuilderPanelState
     } finally {
       if (mounted) setState(() => _exportingPresetId = null);
     }
+  }
+
+  String _buildOutputFileName(NleExportPresetSpec preset, String projectName) {
+    return const ExportFilenameBuilder().build(
+      pattern: ExportFilenamePatterns.defaultPattern,
+      projectName: projectName,
+      presetName: preset.name,
+      platform: preset.platform,
+      resolution: preset.resolutionLabel,
+      extension: preset.format,
+      version: (DateTime.now().millisecondsSinceEpoch % 99) + 1,
+    );
   }
 
   Future<bool> _showQualityAdvisorDialog(ExportQualityReport report) async {
@@ -501,12 +532,14 @@ class _SectionTitle extends StatelessWidget {
 
 class _PresetCard extends StatelessWidget {
   final NleExportPresetSpec preset;
+  final String previewFileName;
   final bool isExporting;
   final VoidCallback onUse;
   final VoidCallback? onRemove;
 
   const _PresetCard({
     required this.preset,
+    required this.previewFileName,
     required this.isExporting,
     required this.onUse,
     this.onRemove,
@@ -563,6 +596,37 @@ class _PresetCard extends StatelessWidget {
                   icon: const Icon(Icons.close_rounded, color: AppTheme.error),
                 ),
             ],
+          ),
+          const SizedBox(height: 10),
+          Container(
+            width: double.infinity,
+            padding: const EdgeInsets.all(10),
+            decoration: BoxDecoration(
+              color: AppTheme.surfaceElevated,
+              borderRadius: BorderRadius.circular(10),
+            ),
+            child: Row(
+              children: [
+                const Icon(
+                  Icons.insert_drive_file_rounded,
+                  color: AppTheme.textMuted,
+                  size: 16,
+                ),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Text(
+                    previewFileName,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(
+                      color: AppTheme.textSecondary,
+                      fontSize: 11,
+                      fontFamily: 'monospace',
+                    ),
+                  ),
+                ),
+              ],
+            ),
           ),
           const SizedBox(height: 12),
           SizedBox(
