@@ -378,7 +378,7 @@ private struct IosCompositedExportJob {
     let videoClips: [IosCompositedClip]
     let overlayClips: [IosOverlayClip]
     let preferProxy: Bool
-    var hasAudioMix: Bool { videoClips.contains { $0.volume != 1.0 || $0.fadeInMicros > 0 || $0.fadeOutMicros > 0 } }
+    var hasAudioMix: Bool { videoClips.contains(where: { $0.volume != 1.0 || $0.fadeInMicros > 0 || $0.fadeOutMicros > 0 }) }
 }
 
 private struct IosCompositedClip {
