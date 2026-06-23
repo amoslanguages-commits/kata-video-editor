@@ -1,4 +1,6 @@
 import 'dart:async';
+import 'dart:io';
+
 import 'package:drift/drift.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter/foundation.dart';
@@ -37,27 +39,21 @@ class NativeExportEventController {
       case NativeEventTypes.exportStarted:
         await _handleStarted(event);
         break;
-
       case NativeEventTypes.exportProgress:
         await _handleProgress(event);
         break;
-
       case NativeEventTypes.exportPaused:
         await _handlePaused(event);
         break;
-
       case NativeEventTypes.exportResumed:
         await _handleResumed(event);
         break;
-
       case NativeEventTypes.exportCompleted:
         await _handleCompleted(event);
         break;
-
       case NativeEventTypes.exportFailed:
         await _handleFailed(event);
         break;
-
       case NativeEventTypes.exportCancelled:
         await _handleCancelled(event);
         break;
@@ -95,7 +91,7 @@ class NativeExportEventController {
             ExportJobsCompanion(
               status: const Value('running'),
               stage: Value(stage),
-              progress: Value(progress),
+              progress: Value(progress.clamp(0, 99)),
             ),
           );
     } catch (e) {
@@ -142,9 +138,26 @@ class NativeExportEventController {
     if (jobId == null) return;
 
     final result = _asMap(event.payload['result']);
-    final outputPath = result['outputPath']?.toString();
+    final outputPath = result['outputPath']?.toString() ??
+        event.payload['outputPath']?.toString();
 
     try {
+      if (outputPath == null || outputPath.trim().isEmpty) {
+        await _markCompletionInvalid(jobId, 'Native export completed without an output path.');
+        return;
+      }
+
+      final outputFile = File(outputPath);
+      if (!await outputFile.exists()) {
+        await _markCompletionInvalid(jobId, 'Native export output file does not exist: $outputPath');
+        return;
+      }
+      final fileSize = await outputFile.length();
+      if (fileSize <= 0) {
+        await _markCompletionInvalid(jobId, 'Native export output file is empty: $outputPath');
+        return;
+      }
+
       await ref.read(exportRepositoryProvider).updateExportJob(
             jobId,
             ExportJobsCompanion(
@@ -157,7 +170,20 @@ class NativeExportEventController {
           );
     } catch (e) {
       debugPrint('[NativeExportEventController] exportCompleted error: $e');
+      await _markCompletionInvalid(jobId, 'Export completion verification failed: $e');
     }
+  }
+
+  Future<void> _markCompletionInvalid(String jobId, String message) async {
+    await ref.read(exportRepositoryProvider).updateExportJob(
+          jobId,
+          ExportJobsCompanion(
+            status: const Value('failed'),
+            stage: const Value('Failed'),
+            errorMessage: Value(message),
+            completedAt: Value(DateTime.now()),
+          ),
+        );
   }
 
   Future<void> _handleFailed(NativeEvent event) async {
@@ -173,6 +199,7 @@ class NativeExportEventController {
               status: const Value('failed'),
               stage: const Value('Failed'),
               errorMessage: Value(error),
+              completedAt: Value(DateTime.now()),
             ),
           );
     } catch (e) {
@@ -187,9 +214,10 @@ class NativeExportEventController {
     try {
       await ref.read(exportRepositoryProvider).updateExportJob(
             jobId,
-            const ExportJobsCompanion(
-              status: Value('cancelled'),
-              stage: Value('Cancelled'),
+            ExportJobsCompanion(
+              status: const Value('cancelled'),
+              stage: const Value('Cancelled'),
+              completedAt: Value(DateTime.now()),
             ),
           );
     } catch (e) {
