@@ -5,7 +5,7 @@ ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT_DIR"
 
 flutter analyze
-flutter test test/domain/timeline || true
+flutter test test/domain/timeline
 
 echo "Cache index smoke checklist:"
 echo "1. Import a video and generate a proxy."
