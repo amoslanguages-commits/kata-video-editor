@@ -19,10 +19,7 @@ final class IosNleCompositedExportRenderer {
         outputPath: String
     ) throws -> [String: Any?] {
         let job = try parseJob(projectId: projectId, renderGraphJson: renderGraphJson, outputPath: outputPath)
-        emit(jobId: jobId, projectId: projectId, type: IosNleEventType.exportStarted, payload: [
-            "stage": "Preparing compositor",
-            "progress": NSNumber(value: 0)
-        ])
+        emit(jobId: jobId, projectId: projectId, type: IosNleEventType.exportStarted, payload: ["stage": "Preparing compositor", "progress": NSNumber(value: 0)])
 
         let composition = AVMutableComposition()
         var layerInstructions: [AVMutableVideoCompositionLayerInstruction] = []
@@ -32,19 +29,22 @@ final class IosNleCompositedExportRenderer {
             guard let sourceVideoTrack = asset.tracks(withMediaType: .video).first else {
                 throw NSError(domain: "IosNleCompositedExportRenderer", code: 20, userInfo: [NSLocalizedDescriptionKey: "Clip \(clip.id) source has no video track."])
             }
-            guard let videoTrack = composition.addMutableTrack(
-                withMediaType: .video,
-                preferredTrackID: kCMPersistentTrackID_Invalid
-            ) else {
+            guard let videoTrack = composition.addMutableTrack(withMediaType: .video, preferredTrackID: kCMPersistentTrackID_Invalid) else {
                 throw NSError(domain: "IosNleCompositedExportRenderer", code: 21, userInfo: [NSLocalizedDescriptionKey: "Could not create composition video track."])
             }
 
+            let sourceDurationMicros = max(Int64(1), clip.sourceEndMicros - clip.sourceStartMicros)
+            let timelineDurationMicros = max(Int64(1), clip.timelineEndMicros - clip.timelineStartMicros)
             let sourceRange = CMTimeRange(
                 start: CMTime(value: clip.sourceStartMicros, timescale: 1_000_000),
-                duration: CMTime(value: max(Int64(1), clip.sourceEndMicros - clip.sourceStartMicros), timescale: 1_000_000)
+                duration: CMTime(value: sourceDurationMicros, timescale: 1_000_000)
             )
             let timelineStart = CMTime(value: clip.timelineStartMicros, timescale: 1_000_000)
+            let timelineDuration = CMTime(value: timelineDurationMicros, timescale: 1_000_000)
             try videoTrack.insertTimeRange(sourceRange, of: sourceVideoTrack, at: timelineStart)
+            if sourceDurationMicros != timelineDurationMicros {
+                videoTrack.scaleTimeRange(CMTimeRange(start: timelineStart, duration: sourceRange.duration), toDuration: timelineDuration)
+            }
 
             let instruction = AVMutableVideoCompositionLayerInstruction(assetTrack: videoTrack)
             instruction.setTransform(sourceVideoTrack.preferredTransform, at: timelineStart)
@@ -55,14 +55,14 @@ final class IosNleCompositedExportRenderer {
             if let sourceAudioTrack = asset.tracks(withMediaType: .audio).first,
                let audioTrack = composition.addMutableTrack(withMediaType: .audio, preferredTrackID: kCMPersistentTrackID_Invalid) {
                 try? audioTrack.insertTimeRange(sourceRange, of: sourceAudioTrack, at: timelineStart)
+                if sourceDurationMicros != timelineDurationMicros {
+                    audioTrack.scaleTimeRange(CMTimeRange(start: timelineStart, duration: sourceRange.duration), toDuration: timelineDuration)
+                }
             }
         }
 
         let videoInstruction = AVMutableVideoCompositionInstruction()
-        videoInstruction.timeRange = CMTimeRange(
-            start: .zero,
-            duration: CMTime(value: max(Int64(1), job.durationMicros), timescale: 1_000_000)
-        )
+        videoInstruction.timeRange = CMTimeRange(start: .zero, duration: CMTime(value: max(Int64(1), job.durationMicros), timescale: 1_000_000))
         videoInstruction.layerInstructions = Array(layerInstructions.reversed())
 
         let videoComposition = AVMutableVideoComposition()
@@ -72,14 +72,8 @@ final class IosNleCompositedExportRenderer {
         attachOverlayLayers(videoComposition: videoComposition, job: job)
 
         let outputUrl = URL(fileURLWithPath: outputPath)
-        try FileManager.default.createDirectory(
-            at: outputUrl.deletingLastPathComponent(),
-            withIntermediateDirectories: true,
-            attributes: nil
-        )
-        if FileManager.default.fileExists(atPath: outputPath) {
-            try FileManager.default.removeItem(at: outputUrl)
-        }
+        try FileManager.default.createDirectory(at: outputUrl.deletingLastPathComponent(), withIntermediateDirectories: true, attributes: nil)
+        if FileManager.default.fileExists(atPath: outputPath) { try FileManager.default.removeItem(at: outputUrl) }
 
         guard let session = AVAssetExportSession(asset: composition, presetName: AVAssetExportPresetHighestQuality) else {
             throw NSError(domain: "IosNleCompositedExportRenderer", code: 22, userInfo: [NSLocalizedDescriptionKey: "Could not create composited AVAssetExportSession."])
@@ -103,32 +97,20 @@ final class IosNleCompositedExportRenderer {
             switch session.status {
             case .completed:
                 let size: Int64
-                if let attrs = try? FileManager.default.attributesOfItem(atPath: outputPath),
-                   let number = attrs[.size] as? NSNumber {
-                    size = number.int64Value
-                } else {
-                    size = 0
-                }
+                if let attrs = try? FileManager.default.attributesOfItem(atPath: outputPath), let number = attrs[.size] as? NSNumber { size = number.int64Value } else { size = 0 }
                 self.emit(jobId: jobId, projectId: projectId, type: IosNleEventType.exportCompleted, payload: [
                     "stage": "Complete",
                     "progress": NSNumber(value: 100),
-                    "result": [
-                        "outputPath": outputPath,
-                        "fileSize": NSNumber(value: size),
-                        "renderer": "ios_avfoundation_compositor_v2_overlays"
-                    ]
+                    "result": ["outputPath": outputPath, "fileSize": NSNumber(value: size), "renderer": "ios_avfoundation_compositor_v3_overlays_speed"]
                 ])
             case .cancelled:
                 self.emit(jobId: jobId, projectId: projectId, type: IosNleEventType.exportCancelled, payload: ["stage": "Cancelled"])
             default:
-                self.emit(jobId: jobId, projectId: projectId, type: IosNleEventType.exportFailed, payload: [
-                    "stage": "Failed",
-                    "errorMessage": session.error?.localizedDescription ?? "iOS composited export failed."
-                ])
+                self.emit(jobId: jobId, projectId: projectId, type: IosNleEventType.exportFailed, payload: ["stage": "Failed", "errorMessage": session.error?.localizedDescription ?? "iOS composited export failed."])
             }
         }
 
-        return ["success": true, "jobId": jobId, "accepted": true, "nativeRenderer": "ios_avfoundation_compositor_v2_overlays"]
+        return ["success": true, "jobId": jobId, "accepted": true, "nativeRenderer": "ios_avfoundation_compositor_v3_overlays_speed"]
     }
 
     func cancel(jobId: String) -> [String: Any?] {
@@ -151,22 +133,16 @@ final class IosNleCompositedExportRenderer {
         for overlay in job.overlayClips {
             let layer: CALayer?
             switch overlay.kind {
-            case "text":
-                layer = makeTextLayer(overlay: overlay, job: job)
-            case "image":
-                layer = makeImageLayer(overlay: overlay, job: job)
-            default:
-                layer = nil
+            case "text": layer = makeTextLayer(overlay: overlay, job: job)
+            case "image": layer = makeImageLayer(overlay: overlay, job: job)
+            default: layer = nil
             }
             guard let layer else { continue }
             addVisibilityAnimation(to: layer, overlay: overlay, durationMicros: job.durationMicros)
             parentLayer.addSublayer(layer)
         }
 
-        videoComposition.animationTool = AVVideoCompositionCoreAnimationTool(
-            postProcessingAsVideoLayer: videoLayer,
-            in: parentLayer
-        )
+        videoComposition.animationTool = AVVideoCompositionCoreAnimationTool(postProcessingAsVideoLayer: videoLayer, in: parentLayer)
     }
 
     private func makeTextLayer(overlay: IosOverlayClip, job: IosCompositedExportJob) -> CALayer {
@@ -222,10 +198,7 @@ final class IosNleCompositedExportRenderer {
                 let progress = min(97, max(1, Int(session.progress * 97.0)))
                 if progress != lastProgress {
                     lastProgress = progress
-                    self?.emit(jobId: jobId, projectId: projectId, type: IosNleEventType.exportProgress, payload: [
-                        "stage": "Compositing",
-                        "progress": NSNumber(value: progress)
-                    ])
+                    self?.emit(jobId: jobId, projectId: projectId, type: IosNleEventType.exportProgress, payload: ["stage": "Compositing", "progress": NSNumber(value: progress)])
                 }
                 Thread.sleep(forTimeInterval: 0.25)
             }
@@ -250,18 +223,12 @@ final class IosNleCompositedExportRenderer {
         for clip in clips {
             if bool(clip["isDisabled"]) { continue }
             let type = string(clip["clipType"]) ?? string(clip["type"]) ?? "video"
-            if type == "adjustment" {
-                continue
-            }
-            if (double(clip["speed"]) ?? 1.0) != 1.0 {
-                throw NSError(domain: "IosNleCompositedExportRenderer", code: 11, userInfo: [NSLocalizedDescriptionKey: "iOS composited export does not support speed changes yet."])
-            }
+            if type == "adjustment" { continue }
             if type == "text" {
                 overlayClips.append(parseOverlayClip(clip: clip, kind: "text", asset: nil))
                 continue
             }
-            guard let assetId = string(clip["assetId"]) ?? string(clip["asset_id"]),
-                  let asset = assets.first(where: { string($0["id"]) == assetId }) else {
+            guard let assetId = string(clip["assetId"]) ?? string(clip["asset_id"]), let asset = assets.first(where: { string($0["id"]) == assetId }) else {
                 throw NSError(domain: "IosNleCompositedExportRenderer", code: 12, userInfo: [NSLocalizedDescriptionKey: "A composited clip is missing its asset."])
             }
             let path = string(asset["exportPath"]) ?? string(asset["sourcePath"]) ?? string(asset["originalPath"]) ?? string(asset["path"]) ?? ""
@@ -275,8 +242,10 @@ final class IosNleCompositedExportRenderer {
             guard type == "video" else { continue }
             let start = int64(clip["timelineStartMicros"]) ?? 0
             let end = max(start + 1, int64(clip["timelineEndMicros"]) ?? start + 1)
+            let speed = max(0.01, double(clip["speed"]) ?? 1.0)
             let sourceStart = int64(clip["sourceInMicros"]) ?? int64(clip["sourceStartMicros"]) ?? 0
-            let sourceEnd = max(sourceStart + 1, int64(clip["sourceOutMicros"]) ?? int64(clip["sourceEndMicros"]) ?? sourceStart + (end - start))
+            let defaultSourceEnd = sourceStart + Int64(Double(end - start) * speed)
+            let sourceEnd = max(sourceStart + 1, int64(clip["sourceOutMicros"]) ?? int64(clip["sourceEndMicros"]) ?? defaultSourceEnd)
             videoClips.append(IosCompositedClip(
                 id: string(clip["id"]) ?? "clip_\(videoClips.count)",
                 assetUrl: url(from: path),
@@ -284,6 +253,7 @@ final class IosNleCompositedExportRenderer {
                 timelineEndMicros: end,
                 sourceStartMicros: sourceStart,
                 sourceEndMicros: sourceEnd,
+                speed: speed,
                 opacity: double(clip["opacity"]) ?? 1.0
             ))
         }
@@ -292,16 +262,7 @@ final class IosNleCompositedExportRenderer {
             throw NSError(domain: "IosNleCompositedExportRenderer", code: 14, userInfo: [NSLocalizedDescriptionKey: "No video layers found for composited export."])
         }
 
-        return IosCompositedExportJob(
-            projectId: projectId,
-            width: width,
-            height: height,
-            frameRate: frameRate,
-            durationMicros: max(Int64(1), duration),
-            outputPath: outputPath,
-            videoClips: videoClips,
-            overlayClips: overlayClips
-        )
+        return IosCompositedExportJob(projectId: projectId, width: width, height: height, frameRate: frameRate, durationMicros: max(Int64(1), duration), outputPath: outputPath, videoClips: videoClips, overlayClips: overlayClips)
     }
 
     private func parseOverlayClip(clip: [String: Any], kind: String, asset: [String: Any]?) -> IosOverlayClip {
@@ -387,6 +348,7 @@ private struct IosCompositedClip {
     let timelineEndMicros: Int64
     let sourceStartMicros: Int64
     let sourceEndMicros: Int64
+    let speed: Double
     let opacity: Double
 }
 
