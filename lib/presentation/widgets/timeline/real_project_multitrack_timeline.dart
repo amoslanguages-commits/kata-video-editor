@@ -12,7 +12,6 @@ import 'package:nle_editor/presentation/widgets/timeline/high_end_multitrack_tim
 import 'package:nle_editor/presentation/widgets/timeline/rename_track_dialog.dart';
 import 'package:nle_editor/presentation/widgets/timeline/timeline_track_header.dart';
 import 'package:nle_editor/presentation/providers/editor_providers.dart';
-import 'package:nle_editor/presentation/providers/clip_interactions_providers.dart';
 import 'package:nle_editor/presentation/providers/timeline_edit_providers.dart';
 import 'package:nle_editor/presentation/providers/timeline_snap_providers.dart';
 import 'package:nle_editor/presentation/widgets/timeline/timeline_clip_actions.dart';
@@ -337,7 +336,6 @@ class _RealProjectMultitrackTimelineState extends ConsumerState<RealProjectMulti
     required String clipId,
     required TimelineClipAction action,
   }) async {
-    final legacyController = ref.read(clipInteractionsControllerProvider(widget.projectId));
     final editController = ref.read(timelineEditCommandControllerProvider(widget.projectId));
     final haptics = ref.read(hapticServiceProvider);
 
@@ -357,11 +355,16 @@ class _RealProjectMultitrackTimelineState extends ConsumerState<RealProjectMulti
           await haptics.success();
           break;
         case TimelineClipAction.duplicate:
-          final result = await legacyController.duplicateClip(clipId: clipId);
-          if (result.newClipId != null) {
+          final result = await editController.duplicate(
+            clipId: clipId,
+            options: TimelineEditOptions(
+              snapping: ref.read(timelineSnapSettingsProvider).enabled,
+            ),
+          );
+          if (result.after.isNotEmpty) {
             ref
                 .read(editorStateProvider.notifier)
-                .selectClip(result.newClipId!, null);
+                .selectClip(result.after.last.id, null);
           }
           await haptics.success();
           break;
