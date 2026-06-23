@@ -17,6 +17,9 @@ class NativePreviewSessionState {
   final int maxPreviewHeight;
   final String qualityMode;
   final bool preferProxy;
+  final int? surfaceId;
+  final int? surfaceWidth;
+  final int? surfaceHeight;
   final String? errorMessage;
 
   const NativePreviewSessionState({
@@ -28,6 +31,9 @@ class NativePreviewSessionState {
     this.maxPreviewHeight = 720,
     this.qualityMode = 'auto',
     this.preferProxy = true,
+    this.surfaceId,
+    this.surfaceWidth,
+    this.surfaceHeight,
     this.errorMessage,
   });
 
@@ -37,6 +43,7 @@ class NativePreviewSessionState {
       phase == NativePreviewSessionPhase.paused;
 
   bool get isBusy => phase == NativePreviewSessionPhase.preparing;
+  bool get hasSurface => surfaceId != null;
 
   NativePreviewSessionState copyWith({
     String? projectId,
@@ -47,7 +54,11 @@ class NativePreviewSessionState {
     int? maxPreviewHeight,
     String? qualityMode,
     bool? preferProxy,
+    int? surfaceId,
+    int? surfaceWidth,
+    int? surfaceHeight,
     String? errorMessage,
+    bool clearSurface = false,
     bool clearError = false,
   }) {
     return NativePreviewSessionState(
@@ -59,6 +70,9 @@ class NativePreviewSessionState {
       maxPreviewHeight: maxPreviewHeight ?? this.maxPreviewHeight,
       qualityMode: qualityMode ?? this.qualityMode,
       preferProxy: preferProxy ?? this.preferProxy,
+      surfaceId: clearSurface ? null : surfaceId ?? this.surfaceId,
+      surfaceWidth: clearSurface ? null : surfaceWidth ?? this.surfaceWidth,
+      surfaceHeight: clearSurface ? null : surfaceHeight ?? this.surfaceHeight,
       errorMessage: clearError ? null : errorMessage ?? this.errorMessage,
     );
   }
