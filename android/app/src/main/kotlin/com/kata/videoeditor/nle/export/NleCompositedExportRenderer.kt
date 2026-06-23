@@ -35,6 +35,10 @@ class NleCompositedExportRenderer(
         token: NleExportCancellationToken,
     ) {
         val graph = graphParser.parse(renderGraphJson)
+        val preferProxyForExport = profileMap.exportBool("preferProxy")
+            ?: profileMap.exportBool("useProxy")
+            ?: profileMap.exportBool("useProxyForExport")
+            ?: !graph.exportHints.useOriginalForExport
         val requestedColorPipeline = NleColorPipelineParser.parse(JSONObject(renderGraphJson))
         val colorCapability = NleDeviceColorCapabilityScanner(
             NleContextHolder.context ?: throw IllegalStateException("Android app context is required for export color pipeline.")
@@ -44,7 +48,7 @@ class NleCompositedExportRenderer(
             capability = colorCapability,
             forExport = true,
         )
-        val audioTracks = audioPlanner.plan(graph)
+        val audioTracks = audioPlanner.plan(graph, preferProxy = preferProxyForExport)
         val width = profileMap.exportInt("width")
             ?: profileMap.exportInt("targetWidth")
             ?: profileMap.exportInt("outputWidth")
@@ -66,7 +70,7 @@ class NleCompositedExportRenderer(
         outputFile.parentFile?.mkdirs()
         if (outputFile.exists()) outputFile.delete()
 
-        emit("export_progress", mapOf("stage" to "Preparing compositor", "progress" to 1))
+        emit("export_progress", mapOf("stage" to "Preparing compositor", "progress" to 1, "preferProxy" to preferProxyForExport))
 
         var encoder: MediaCodec? = null
         var muxer: MediaMuxer? = null
@@ -103,7 +107,7 @@ class NleCompositedExportRenderer(
                 videoTextureSource = NlePreviewVideoTextureSource(
                     graph = graph,
                     decoderPool = decoderPool,
-                    preferProxy = false,
+                    preferProxy = preferProxyForExport,
                 ),
                 outputWidth = width,
                 outputHeight = height,
@@ -151,7 +155,7 @@ class NleCompositedExportRenderer(
 
                 if (frameIndex % frameRate == 0L || frameIndex == totalFrames - 1L) {
                     val progress = (2 + (frameIndex * 86 / totalFrames)).toInt().coerceIn(2, 88)
-                    emit("export_progress", mapOf("stage" to "Compositing", "progress" to progress))
+                    emit("export_progress", mapOf("stage" to "Compositing", "progress" to progress, "preferProxy" to preferProxyForExport))
                 }
                 frameIndex += 1
             }
@@ -175,7 +179,7 @@ class NleCompositedExportRenderer(
                 if (!muxerStarted || muxerVideoTrack < 0 || muxerAudioTracks.isEmpty()) {
                     throw IllegalStateException("Muxer was not ready for timeline audio tracks.")
                 }
-                emit("export_progress", mapOf("stage" to "Muxing audio", "progress" to 90))
+                emit("export_progress", mapOf("stage" to "Muxing audio", "progress" to 90, "preferProxy" to preferProxyForExport))
                 writeAudioTracks(
                     audioTracks = muxerAudioTracks,
                     muxer = activeMuxer,
@@ -184,7 +188,7 @@ class NleCompositedExportRenderer(
                 )
             }
 
-            emit("export_progress", mapOf("stage" to "Finalizing", "progress" to 99))
+            emit("export_progress", mapOf("stage" to "Finalizing", "progress" to 99, "preferProxy" to preferProxyForExport))
         } catch (cancelled: NleExportCancelledException) {
             outputFile.delete()
             throw cancelled
@@ -319,6 +323,16 @@ internal fun Map<String, Any?>.exportInt(key: String): Int? {
         is Float -> value.toInt()
         is Number -> value.toInt()
         is String -> value.toIntOrNull()
+        else -> null
+    }
+}
+
+internal fun Map<String, Any?>.exportBool(key: String): Boolean? {
+    val value = this[key] ?: return null
+    return when (value) {
+        is Boolean -> value
+        is String -> value.equals("true", ignoreCase = true)
+        is Number -> value.toInt() != 0
         else -> null
     }
 }
