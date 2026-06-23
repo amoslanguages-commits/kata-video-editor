@@ -86,15 +86,12 @@ class ExportPipelinePanel extends ConsumerWidget {
     if (filter == 'active') {
       return normalized == 'running' || normalized == 'pending' || normalized == 'queued';
     }
+    if (filter == 'paused') return normalized == 'paused';
     if (filter == 'done') {
       return normalized == 'completed' || normalized == 'done' || normalized == 'success';
     }
-    if (filter == 'failed') {
-      return normalized == 'failed' || normalized == 'error';
-    }
-    if (filter == 'cancelled') {
-      return normalized == 'cancelled' || normalized == 'canceled';
-    }
+    if (filter == 'failed') return normalized == 'failed' || normalized == 'error';
+    if (filter == 'cancelled') return normalized == 'cancelled' || normalized == 'canceled';
     return true;
   }
 }
@@ -143,6 +140,8 @@ class _ExportHeader extends StatelessWidget {
               const SizedBox(width: 8),
               _Metric(label: 'Active', value: summary.runningJobs),
               const SizedBox(width: 8),
+              _Metric(label: 'Paused', value: summary.pausedJobs),
+              const SizedBox(width: 8),
               _Metric(label: 'Done', value: summary.completedJobs),
               const SizedBox(width: 8),
               _Metric(label: 'Failed', value: summary.failedJobs),
@@ -155,6 +154,7 @@ class _ExportHeader extends StatelessWidget {
             children: [
               _FilterChip(label: 'All', value: 'all', selected: filter, onSelected: onFilterChanged),
               _FilterChip(label: 'Active', value: 'active', selected: filter, onSelected: onFilterChanged),
+              _FilterChip(label: 'Paused', value: 'paused', selected: filter, onSelected: onFilterChanged),
               _FilterChip(label: 'Done', value: 'done', selected: filter, onSelected: onFilterChanged),
               _FilterChip(label: 'Failed', value: 'failed', selected: filter, onSelected: onFilterChanged),
               _FilterChip(label: 'Cancelled', value: 'cancelled', selected: filter, onSelected: onFilterChanged),
@@ -220,10 +220,7 @@ class _Metric extends StatelessWidget {
               ),
             ),
             const SizedBox(height: 2),
-            Text(
-              label,
-              style: const TextStyle(color: AppTheme.textMuted, fontSize: 11),
-            ),
+            Text(label, style: const TextStyle(color: AppTheme.textMuted, fontSize: 11)),
           ],
         ),
       ),
@@ -243,7 +240,7 @@ class _ExportJobTile extends ConsumerWidget {
     final viewModel = NleExportJobViewModel(job: job, settings: settings);
     final color = _statusColor(job.status);
     final progress = job.progress.clamp(0, 100) / 100.0;
-    final outputPath = job.outputPath;
+    final outputPath = job.outputPath ?? settings['outputPath']?.toString();
     final hasOutput = outputPath != null && outputPath.isNotEmpty;
     final outputExists = hasOutput && File(outputPath).existsSync();
 
@@ -326,6 +323,18 @@ class _ExportJobTile extends ConsumerWidget {
               ),
               if (viewModel.isActive)
                 TextButton.icon(
+                  onPressed: () => _pauseExport(context, ref, job.id),
+                  icon: const Icon(Icons.pause_circle_rounded, size: 16),
+                  label: const Text('Pause'),
+                ),
+              if (viewModel.isPaused)
+                TextButton.icon(
+                  onPressed: () => _resumeExport(context, ref, job.id),
+                  icon: const Icon(Icons.play_circle_rounded, size: 16),
+                  label: const Text('Resume'),
+                ),
+              if (viewModel.isActive || viewModel.isPaused)
+                TextButton.icon(
                   onPressed: () => _cancelExport(context, ref, job.id),
                   icon: const Icon(Icons.stop_circle_rounded, size: 16),
                   label: const Text('Cancel'),
@@ -341,6 +350,18 @@ class _ExportJobTile extends ConsumerWidget {
                   onPressed: () => _copyOutputPath(context, outputPath),
                   icon: const Icon(Icons.copy_rounded, size: 16),
                   label: const Text('Copy Path'),
+                ),
+              if (outputExists && viewModel.isCompleted)
+                TextButton.icon(
+                  onPressed: () => _openExportFile(context, ref, outputPath),
+                  icon: const Icon(Icons.open_in_new_rounded, size: 16),
+                  label: const Text('Open'),
+                ),
+              if (outputExists && viewModel.isCompleted)
+                TextButton.icon(
+                  onPressed: () => _openExportFolder(context, ref, outputPath),
+                  icon: const Icon(Icons.folder_open_rounded, size: 16),
+                  label: const Text('Folder'),
                 ),
               if (outputExists && viewModel.isCompleted)
                 TextButton.icon(
@@ -388,6 +409,32 @@ class _ExportJobTile extends ConsumerWidget {
     await Share.shareXFiles([XFile(outputPath)], text: 'Exported from Kata Video Editor');
   }
 
+  Future<void> _pauseExport(BuildContext context, WidgetRef ref, String jobId) async {
+    try {
+      await ref.read(nativeExportServiceProvider).pauseExport(jobId: jobId);
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Export paused.')));
+      }
+    } catch (error) {
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Pause failed: $error'), backgroundColor: AppTheme.error));
+      }
+    }
+  }
+
+  Future<void> _resumeExport(BuildContext context, WidgetRef ref, String jobId) async {
+    try {
+      await ref.read(nativeExportServiceProvider).resumeExport(jobId: jobId);
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Export resumed.')));
+      }
+    } catch (error) {
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Resume failed: $error'), backgroundColor: AppTheme.error));
+      }
+    }
+  }
+
   Future<void> _cancelExport(BuildContext context, WidgetRef ref, String jobId) async {
     try {
       await ref.read(nativeExportServiceProvider).cancelExport(jobId: jobId);
@@ -397,6 +444,26 @@ class _ExportJobTile extends ConsumerWidget {
     } catch (error) {
       if (context.mounted) {
         ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Cancel failed: $error'), backgroundColor: AppTheme.error));
+      }
+    }
+  }
+
+  Future<void> _openExportFile(BuildContext context, WidgetRef ref, String outputPath) async {
+    try {
+      await ref.read(nativeExportServiceProvider).openExportFile(outputPath: outputPath);
+    } catch (error) {
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Open failed: $error'), backgroundColor: AppTheme.error));
+      }
+    }
+  }
+
+  Future<void> _openExportFolder(BuildContext context, WidgetRef ref, String outputPath) async {
+    try {
+      await ref.read(nativeExportServiceProvider).openExportFolder(outputPath: outputPath);
+    } catch (error) {
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Open folder failed: $error'), backgroundColor: AppTheme.error));
       }
     }
   }
@@ -467,6 +534,7 @@ class _ExportJobTile extends ConsumerWidget {
     if (normalized == 'completed' || normalized == 'done' || normalized == 'success') return AppTheme.success;
     if (normalized == 'failed' || normalized == 'error') return AppTheme.error;
     if (normalized == 'cancelled' || normalized == 'canceled') return AppTheme.warning;
+    if (normalized == 'paused') return AppTheme.warning;
     return AppTheme.accentPrimary;
   }
 
@@ -475,6 +543,7 @@ class _ExportJobTile extends ConsumerWidget {
     if (normalized == 'completed' || normalized == 'done' || normalized == 'success') return Icons.check_circle_rounded;
     if (normalized == 'failed' || normalized == 'error') return Icons.error_rounded;
     if (normalized == 'cancelled' || normalized == 'canceled') return Icons.cancel_rounded;
+    if (normalized == 'paused') return Icons.pause_circle_rounded;
     return Icons.autorenew_rounded;
   }
 }
@@ -509,27 +578,6 @@ class _ErrorSuggestion extends StatelessWidget {
     if (value.contains('permission')) return 'Check storage/gallery permissions and try again.';
     if (value.contains('codec') || value.contains('encoder')) return 'Try H.264 MP4, lower bitrate, or reduce resolution for this device.';
     return 'Open logs, check the error message, then retry with a lower preset or simpler timeline.';
-  }
-}
-
-class _DetailRow extends StatelessWidget {
-  final String label;
-  final String value;
-
-  const _DetailRow({required this.label, required this.value});
-
-  @override
-  Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.only(bottom: 8),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          SizedBox(width: 88, child: Text(label, style: const TextStyle(color: AppTheme.textMuted, fontSize: 12))),
-          Expanded(child: Text(value, style: const TextStyle(color: AppTheme.textSecondary, fontSize: 12))),
-        ],
-      ),
-    );
   }
 }
 
