@@ -4,6 +4,7 @@ import 'package:uuid/uuid.dart';
 
 import 'package:nle_editor/core/theme/app_theme.dart';
 import 'package:nle_editor/domain/export/export_preset_builder_models.dart';
+import 'package:nle_editor/domain/export/export_quality_advisor.dart';
 import 'package:nle_editor/presentation/providers/editor_providers.dart';
 import 'package:nle_editor/presentation/providers/export_preset_builder_providers.dart';
 import 'package:nle_editor/presentation/providers/export_readiness_provider.dart';
@@ -200,6 +201,17 @@ class _ExportPresetBuilderPanelState
       return;
     }
 
+    final device = await ref.read(deviceCapabilityProfileProvider.future);
+    final qualityReport = const ExportQualityAdvisor().check(
+      preset: preset,
+      device: device,
+    );
+
+    if (qualityReport.hasIssues) {
+      final shouldContinue = await _showQualityAdvisorDialog(qualityReport);
+      if (!shouldContinue) return;
+    }
+
     setState(() => _exportingPresetId = preset.id);
     try {
       await ref.read(nativeExportServiceProvider).startExport(
@@ -223,6 +235,52 @@ class _ExportPresetBuilderPanelState
     } finally {
       if (mounted) setState(() => _exportingPresetId = null);
     }
+  }
+
+  Future<bool> _showQualityAdvisorDialog(ExportQualityReport report) async {
+    if (!mounted) return false;
+    final blocks = report.shouldStop;
+    final result = await showDialog<bool>(
+      context: context,
+      builder: (context) {
+        return AlertDialog(
+          backgroundColor: AppTheme.surfaceDark,
+          title: Text(blocks ? 'Export Not Recommended' : 'Export Quality Advisor'),
+          content: SizedBox(
+            width: double.maxFinite,
+            child: ListView.separated(
+              shrinkWrap: true,
+              itemCount: report.issues.length,
+              separatorBuilder: (_, __) => const Divider(),
+              itemBuilder: (context, index) {
+                final issue = report.issues[index];
+                return ListTile(
+                  contentPadding: EdgeInsets.zero,
+                  leading: Icon(
+                    issue.stop ? Icons.block_rounded : Icons.warning_amber_rounded,
+                    color: issue.stop ? AppTheme.error : AppTheme.warning,
+                  ),
+                  title: Text(issue.title),
+                  subtitle: Text(issue.message),
+                );
+              },
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context, false),
+              child: Text(blocks ? 'OK' : 'Cancel'),
+            ),
+            if (!blocks)
+              ElevatedButton(
+                onPressed: () => Navigator.pop(context, true),
+                child: const Text('Continue Export'),
+              ),
+          ],
+        );
+      },
+    );
+    return result ?? false;
   }
 
   Future<void> _removePreset(String presetId) async {
