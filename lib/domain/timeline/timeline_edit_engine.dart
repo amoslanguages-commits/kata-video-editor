@@ -161,52 +161,14 @@ class TimelineEditEngine {
     );
 
     await repository.insertClip(
-      ClipsCompanion.insert(
+      _copyClipCompanion(
+        source: clip,
         id: rightId,
-        projectId: clip.projectId,
-        trackId: clip.trackId,
-        assetId: Value(clip.assetId),
-        clipType: Value(clip.clipType),
-        timelineStartMicros: Value(splitMicros),
-        timelineEndMicros: Value(clip.timelineEndMicros),
-        sourceInMicros: Value(sourceSplit),
-        sourceOutMicros: Value(clip.sourceOutMicros),
-        positionX: Value(clip.positionX),
-        positionY: Value(clip.positionY),
-        anchorX: Value(clip.anchorX),
-        anchorY: Value(clip.anchorY),
-        scale: Value(clip.scale),
-        rotation: Value(clip.rotation),
-        opacity: Value(clip.opacity),
-        cropLeft: Value(clip.cropLeft),
-        cropTop: Value(clip.cropTop),
-        cropRight: Value(clip.cropRight),
-        cropBottom: Value(clip.cropBottom),
-        blendMode: Value(clip.blendMode),
-        exposure: Value(clip.exposure),
-        contrast: Value(clip.contrast),
-        saturation: Value(clip.saturation),
-        temperature: Value(clip.temperature),
-        tint: Value(clip.tint),
-        volume: Value(clip.volume),
-        audioPan: Value(clip.audioPan),
-        isAudioMuted: Value(clip.isAudioMuted),
-        textContent: Value(clip.textContent),
-        textStyle: Value(clip.textStyle),
-        speed: Value(clip.speed),
-        isReversed: Value(clip.isReversed),
-        isLinked: Value(clip.isLinked),
-        linkedClipId: Value(clip.linkedClipId),
-        isDisabled: Value(clip.isDisabled),
-        sortOrder: Value(clip.sortOrder + 1),
-        fitMode: Value(clip.fitMode),
-        brightness: Value(clip.brightness),
-        textStyleJson: Value(clip.textStyleJson),
-        colorHex: Value(clip.colorHex),
-        effectStack: Value(clip.effectStack),
-        keyframeTrackJson: Value(clip.keyframeTrackJson),
-        audioAutomationJson: Value(clip.audioAutomationJson),
-        effectChainJson: Value(clip.effectChainJson),
+        timelineStartMicros: splitMicros,
+        timelineEndMicros: clip.timelineEndMicros,
+        sourceInMicros: sourceSplit,
+        sourceOutMicros: clip.sourceOutMicros,
+        sortOrder: clip.sortOrder + 1,
       ),
     );
 
@@ -218,6 +180,203 @@ class TimelineEditEngine {
       after: [TimelineClipSnapshot.fromClip(left), TimelineClipSnapshot.fromClip(right)],
     );
     await _recordHistory(clip.projectId, 'split_clip', 'Split clip', result);
+    return result;
+  }
+
+  Future<TimelineEditResult> duplicateClip({
+    required String clipId,
+    int offsetMicros = 100000,
+    TimelineEditOptions options = const TimelineEditOptions(),
+  }) async {
+    final clip = await _requiredClip(clipId);
+    await _assertTrackUnlocked(clip.trackId);
+    final before = [TimelineClipSnapshot.fromClip(clip)];
+    final duplicateId = 'clip_${_uuid.v4()}';
+    final duration = _duration(clip);
+    final proposedStart = clip.timelineEndMicros + offsetMicros;
+    final start = options.snapping
+        ? await _snapStart(
+            projectId: clip.projectId,
+            movingClipId: clip.id,
+            proposedStartMicros: proposedStart,
+            toleranceMicros: options.snapToleranceMicros,
+          )
+        : proposedStart;
+    final end = start + duration;
+
+    if (!options.allowOverlap) {
+      await _assertNoOverlap(
+        trackId: clip.trackId,
+        movingClipId: duplicateId,
+        startMicros: start,
+        endMicros: end,
+      );
+    }
+
+    await repository.insertClip(
+      _copyClipCompanion(
+        source: clip,
+        id: duplicateId,
+        timelineStartMicros: start,
+        timelineEndMicros: end,
+        sourceInMicros: clip.sourceInMicros,
+        sourceOutMicros: clip.sourceOutMicros,
+        sortOrder: clip.sortOrder + 1,
+      ),
+    );
+
+    final duplicate = await _requiredClip(duplicateId);
+    final result = TimelineEditResult(
+      action: 'duplicate_clip',
+      before: before,
+      after: [TimelineClipSnapshot.fromClip(clip), TimelineClipSnapshot.fromClip(duplicate)],
+    );
+    await _recordHistory(clip.projectId, 'duplicate_clip', 'Duplicate clip', result);
+    return result;
+  }
+
+  Future<TimelineEditResult> slipClip({
+    required String clipId,
+    required int deltaMicros,
+    TimelineEditOptions options = const TimelineEditOptions(),
+  }) async {
+    final clip = await _requiredClip(clipId);
+    await _assertTrackUnlocked(clip.trackId);
+    final before = [TimelineClipSnapshot.fromClip(clip)];
+    final sourceDuration = clip.sourceOutMicros - clip.sourceInMicros;
+    final nextIn = (clip.sourceInMicros + deltaMicros).clamp(0, 1 << 62).toInt();
+    final nextOut = nextIn + sourceDuration;
+    _assertMinDuration(nextIn, nextOut, options.minClipDurationMicros);
+
+    await repository.updateClipFields(
+      clip.id,
+      ClipsCompanion(
+        sourceInMicros: Value(nextIn),
+        sourceOutMicros: Value(nextOut),
+        modifiedAt: Value(DateTime.now()),
+      ),
+    );
+
+    final updated = await _requiredClip(clip.id);
+    final result = TimelineEditResult(
+      action: 'slip_clip',
+      before: before,
+      after: [TimelineClipSnapshot.fromClip(updated)],
+    );
+    await _recordHistory(clip.projectId, 'slip_clip', 'Slip clip', result);
+    return result;
+  }
+
+  Future<TimelineEditResult> slideClip({
+    required String clipId,
+    required int deltaMicros,
+    TimelineEditOptions options = const TimelineEditOptions(),
+  }) async {
+    final clip = await _requiredClip(clipId);
+    await _assertTrackUnlocked(clip.trackId);
+    final trackClips = await repository.getTrackClips(clip.trackId)
+      ..sort((a, b) => a.timelineStartMicros.compareTo(b.timelineStartMicros));
+    final index = trackClips.indexWhere((item) => item.id == clip.id);
+    if (index < 0) throw TimelineEditException('clip_not_found', 'Clip $clipId was not found on its track.');
+    if (index == 0 || index == trackClips.length - 1) {
+      throw const TimelineEditException('slide_requires_neighbors', 'Slide edit requires clips on both sides.');
+    }
+
+    final previous = trackClips[index - 1];
+    final next = trackClips[index + 1];
+    await _assertTrackUnlocked(previous.trackId);
+    await _assertTrackUnlocked(next.trackId);
+
+    final before = [previous, clip, next].map(TimelineClipSnapshot.fromClip).toList();
+    final duration = _duration(clip);
+    final minStart = previous.timelineStartMicros + options.minClipDurationMicros;
+    final maxStart = next.timelineEndMicros - options.minClipDurationMicros - duration;
+    final targetStart = (clip.timelineStartMicros + deltaMicros).clamp(minStart, maxStart).toInt();
+    final targetEnd = targetStart + duration;
+
+    await repository.updateClipFields(
+      previous.id,
+      ClipsCompanion(
+        timelineEndMicros: Value(targetStart),
+        modifiedAt: Value(DateTime.now()),
+      ),
+    );
+    await repository.updateClipFields(
+      clip.id,
+      ClipsCompanion(
+        timelineStartMicros: Value(targetStart),
+        timelineEndMicros: Value(targetEnd),
+        modifiedAt: Value(DateTime.now()),
+      ),
+    );
+    await repository.updateClipFields(
+      next.id,
+      ClipsCompanion(
+        timelineStartMicros: Value(targetEnd),
+        modifiedAt: Value(DateTime.now()),
+      ),
+    );
+
+    final updatedPrevious = await _requiredClip(previous.id);
+    final updatedClip = await _requiredClip(clip.id);
+    final updatedNext = await _requiredClip(next.id);
+    final result = TimelineEditResult(
+      action: 'slide_clip',
+      before: before,
+      after: [updatedPrevious, updatedClip, updatedNext].map(TimelineClipSnapshot.fromClip).toList(),
+    );
+    await _recordHistory(clip.projectId, 'slide_clip', 'Slide clip', result);
+    return result;
+  }
+
+  Future<TimelineEditResult> rollEdit({
+    required String leftClipId,
+    required String rightClipId,
+    required int deltaMicros,
+    TimelineEditOptions options = const TimelineEditOptions(),
+  }) async {
+    final left = await _requiredClip(leftClipId);
+    final right = await _requiredClip(rightClipId);
+    if (left.trackId != right.trackId) {
+      throw const TimelineEditException('roll_track_mismatch', 'Roll edit requires clips on the same track.');
+    }
+    await _assertTrackUnlocked(left.trackId);
+    final before = [left, right].map(TimelineClipSnapshot.fromClip).toList();
+    final editPoint = left.timelineEndMicros;
+    if (right.timelineStartMicros != editPoint) {
+      throw const TimelineEditException('roll_gap_or_overlap', 'Roll edit requires adjacent clips.');
+    }
+    final minPoint = left.timelineStartMicros + options.minClipDurationMicros;
+    final maxPoint = right.timelineEndMicros - options.minClipDurationMicros;
+    final nextPoint = (editPoint + deltaMicros).clamp(minPoint, maxPoint).toInt();
+    final leftSourceDuration = ((nextPoint - left.timelineStartMicros) * left.speed).round();
+    final rightSourceDelta = ((nextPoint - right.timelineStartMicros) * right.speed).round();
+
+    await repository.updateClipFields(
+      left.id,
+      ClipsCompanion(
+        timelineEndMicros: Value(nextPoint),
+        sourceOutMicros: Value(left.sourceInMicros + leftSourceDuration),
+        modifiedAt: Value(DateTime.now()),
+      ),
+    );
+    await repository.updateClipFields(
+      right.id,
+      ClipsCompanion(
+        timelineStartMicros: Value(nextPoint),
+        sourceInMicros: Value(right.sourceInMicros + rightSourceDelta),
+        modifiedAt: Value(DateTime.now()),
+      ),
+    );
+
+    final updatedLeft = await _requiredClip(left.id);
+    final updatedRight = await _requiredClip(right.id);
+    final result = TimelineEditResult(
+      action: 'roll_edit',
+      before: before,
+      after: [updatedLeft, updatedRight].map(TimelineClipSnapshot.fromClip).toList(),
+    );
+    await _recordHistory(left.projectId, 'roll_edit', 'Roll edit', result);
     return result;
   }
 
@@ -329,6 +488,85 @@ class TimelineEditEngine {
         'Clip duration must be at least ${minDurationMicros}µs.',
       );
     }
+  }
+
+  ClipsCompanion _copyClipCompanion({
+    required Clip source,
+    required String id,
+    required int timelineStartMicros,
+    required int timelineEndMicros,
+    required int sourceInMicros,
+    required int sourceOutMicros,
+    required int sortOrder,
+  }) {
+    return ClipsCompanion.insert(
+      id: id,
+      projectId: source.projectId,
+      trackId: source.trackId,
+      assetId: Value(source.assetId),
+      clipType: Value(source.clipType),
+      timelineStartMicros: Value(timelineStartMicros),
+      timelineEndMicros: Value(timelineEndMicros),
+      sourceInMicros: Value(sourceInMicros),
+      sourceOutMicros: Value(sourceOutMicros),
+      positionX: Value(source.positionX),
+      positionY: Value(source.positionY),
+      anchorX: Value(source.anchorX),
+      anchorY: Value(source.anchorY),
+      scale: Value(source.scale),
+      rotation: Value(source.rotation),
+      opacity: Value(source.opacity),
+      cropLeft: Value(source.cropLeft),
+      cropTop: Value(source.cropTop),
+      cropRight: Value(source.cropRight),
+      cropBottom: Value(source.cropBottom),
+      blendMode: Value(source.blendMode),
+      exposure: Value(source.exposure),
+      contrast: Value(source.contrast),
+      saturation: Value(source.saturation),
+      temperature: Value(source.temperature),
+      tint: Value(source.tint),
+      highlights: Value(source.highlights),
+      shadows: Value(source.shadows),
+      lutPath: Value(source.lutPath),
+      volume: Value(source.volume),
+      audioPan: Value(source.audioPan),
+      isAudioMuted: Value(source.isAudioMuted),
+      fadeInMicros: Value(source.fadeInMicros),
+      fadeOutMicros: Value(source.fadeOutMicros),
+      textContent: Value(source.textContent),
+      textStyle: Value(source.textStyle),
+      speed: Value(source.speed),
+      isReversed: Value(source.isReversed),
+      isLinked: Value(source.isLinked),
+      linkedClipId: Value(source.linkedClipId),
+      isDisabled: Value(source.isDisabled),
+      effectStack: Value(source.effectStack),
+      sortOrder: Value(sortOrder),
+      fitMode: Value(source.fitMode),
+      brightness: Value(source.brightness),
+      textStyleJson: Value(source.textStyleJson),
+      colorHex: Value(source.colorHex),
+      lutStackJson: Value(source.lutStackJson),
+      primaryGradeJson: Value(source.primaryGradeJson),
+      colorCurveStackJson: Value(source.colorCurveStackJson),
+      secondaryGradeStackJson: Value(source.secondaryGradeStackJson),
+      colorNodeGraphJson: Value(source.colorNodeGraphJson),
+      isAdjustmentLayer: Value(source.isAdjustmentLayer),
+      adjustmentColorGraphJson: Value(source.adjustmentColorGraphJson),
+      filmLookJson: Value(source.filmLookJson),
+      titleDataJson: Value(source.titleDataJson),
+      isTitleClip: Value(source.isTitleClip),
+      overlayDataJson: Value(source.overlayDataJson),
+      isOverlayClip: Value(source.isOverlayClip),
+      templateGroupId: Value(source.templateGroupId),
+      sourceTemplateId: Value(source.sourceTemplateId),
+      keyframeTrackJson: Value(source.keyframeTrackJson),
+      audioAutomationJson: Value(source.audioAutomationJson),
+      effectChainJson: Value(source.effectChainJson),
+      voiceTakeId: Value(source.voiceTakeId),
+      isVoiceRecording: Value(source.isVoiceRecording),
+    );
   }
 
   Future<void> _recordHistory(
