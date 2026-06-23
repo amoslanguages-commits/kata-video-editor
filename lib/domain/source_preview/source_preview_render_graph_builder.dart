@@ -43,6 +43,9 @@ class SourcePreviewRenderGraphBuilder {
     const audioTrackId  = 'source_a1';
 
     final trackType = asset.assetType.toLowerCase() == 'image' ? 'image' : 'video';
+    final hasManagedSource = asset.originalPath != null && asset.originalPath!.trim().isNotEmpty;
+    final hasProxySource = asset.proxyPath != null && asset.proxyPath!.trim().isNotEmpty;
+    final resolvedPreviewPath = hasProxySource ? asset.proxyPath : asset.originalPath;
 
     return {
       'schema':  _kRenderGraphSchema,
@@ -62,8 +65,12 @@ class SourcePreviewRenderGraphBuilder {
         {
           'id':            asset.id,
           'type':          asset.assetType,
+          // In this source-preview graph, originalPath is already the managed
+          // project copy when one exists. SourcePreviewController resolves that
+          // before this graph is built.
           'originalPath':  asset.originalPath,
           'proxyPath':     asset.proxyPath,
+          'resolvedPreviewPath': resolvedPreviewPath,
           'thumbnailPath': asset.thumbnailPath,
           'displayName':   asset.name,
           'durationMicros':asset.durationMicros,
@@ -74,6 +81,9 @@ class SourcePreviewRenderGraphBuilder {
           'codec':         null,
           'frameRate':     null,
           'rotationDegrees': 0,
+          'preferProxy':   true,
+          'hasManagedSource': hasManagedSource,
+          'mediaMissing':  !hasManagedSource,
         },
       ],
       'tracks': [
@@ -103,6 +113,8 @@ class SourcePreviewRenderGraphBuilder {
                 timelineEndMicros:    selectedDuration,
                 sourceStartMicros:    safeIn,
                 sourceEndMicros:      safeOut,
+                resolvedPreviewPath:  resolvedPreviewPath,
+                mediaMissing:         !hasManagedSource,
               ),
             ],
           },
@@ -132,6 +144,8 @@ class SourcePreviewRenderGraphBuilder {
                 timelineEndMicros:   selectedDuration,
                 sourceStartMicros:   safeIn,
                 sourceEndMicros:     safeOut,
+                resolvedPreviewPath: resolvedPreviewPath,
+                mediaMissing:        !hasManagedSource,
               ),
             ],
           },
@@ -158,6 +172,9 @@ class SourcePreviewRenderGraphBuilder {
       'exportHints': {
         'useProxyForPreview':    true,
         'useOriginalForExport':  false,
+        'resolvedPreviewPath':   resolvedPreviewPath,
+        'usesManagedMediaPath':  hasManagedSource,
+        'mediaMissing':          !hasManagedSource,
         'requiresGpuCompositor': visual,
         'containsText':          false,
         'containsImage':         asset.assetType.toLowerCase() == 'image' ||
@@ -173,6 +190,7 @@ class SourcePreviewRenderGraphBuilder {
       'metadata': {
         'builder': 'SourcePreviewRenderGraphBuilder',
         'step':    '29F',
+        'pathResolution': 'managed-project-copy-first',
       },
     };
   }
@@ -185,6 +203,8 @@ class SourcePreviewRenderGraphBuilder {
     required int timelineEndMicros,
     required int sourceStartMicros,
     required int sourceEndMicros,
+    required String? resolvedPreviewPath,
+    required bool mediaMissing,
   }) {
     return {
       'id':                  'source_clip_${asset.id}',
@@ -199,6 +219,12 @@ class SourcePreviewRenderGraphBuilder {
       'sourceStartMicros':   sourceStartMicros,
       'sourceEndMicros':     sourceEndMicros,
       'durationMicros':      timelineEndMicros - timelineStartMicros,
+      'sourcePath':          resolvedPreviewPath,
+      'resolvedPreviewPath': resolvedPreviewPath,
+      'originalPath':        asset.originalPath,
+      'proxyPath':           asset.proxyPath,
+      'preferProxy':         true,
+      'mediaMissing':        mediaMissing,
       'speed':               1.0,
       'opacity':             1.0,
       'positionX':           0.0,
