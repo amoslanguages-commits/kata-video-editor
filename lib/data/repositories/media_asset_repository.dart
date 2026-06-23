@@ -25,8 +25,8 @@ class MediaAssetRepository {
     return _assetFromRow(row);
   }
 
-  Future<void> saveAsset(NleMediaAsset asset) {
-    return database.upsertMediaAsset(
+  Future<void> saveAsset(NleMediaAsset asset) async {
+    await database.upsertMediaAsset(
       db.MediaAssetsCompanion(
         id: Value(asset.id),
         projectId: Value(asset.projectId),
@@ -53,20 +53,32 @@ class MediaAssetRepository {
         version: Value(asset.version),
       ),
     );
+
+    // Compatibility bridge:
+    // Older timeline and preview code still reads from the legacy Assets table.
+    // Keep that table mirrored until the whole app is fully migrated to
+    // MediaAssets as the single source of truth.
+    await _mirrorToLegacyAssetsTable(asset);
   }
 
-  Future<void> deleteAsset(String assetId) {
-    return database.deleteMediaAssetById(assetId);
+  Future<void> deleteAsset(String assetId) async {
+    await database.deleteMediaAssetById(assetId);
+    await database.deleteAsset(assetId);
   }
 
   Future<void> setAvailability({
     required String assetId,
     required NleMediaAvailability availability,
-  }) {
-    return database.updateMediaAssetAvailability(
+  }) async {
+    await database.updateMediaAssetAvailability(
       assetId: assetId,
       availability: availability.name,
     );
+
+    await database.markAssetAvailable(assetId);
+    if (availability != NleMediaAvailability.available) {
+      await database.markAssetMissing(assetId, availability.name);
+    }
   }
 
   Future<void> setUsageState({
@@ -109,6 +121,94 @@ class MediaAssetRepository {
       assetId: assetId,
       binId: binId,
     );
+  }
+
+  Future<void> _mirrorToLegacyAssetsTable(NleMediaAsset asset) async {
+    final sourcePath = asset.projectPath ?? asset.originalPath;
+    if (sourcePath == null || sourcePath.trim().isEmpty) return;
+
+    final fileName = asset.fileInfo.fileName.trim().isNotEmpty
+        ? asset.fileInfo.fileName.trim()
+        : asset.displayName.trim().isNotEmpty
+            ? asset.displayName.trim()
+            : asset.id;
+
+    await database.into(database.assets).insertOnConflictUpdate(
+          db.AssetsCompanion.insert(
+            id: asset.id,
+            projectId: asset.projectId,
+            originalPath: sourcePath,
+            originalUri: Value(asset.originalPath),
+            fileName: fileName,
+            fileSize: Value(asset.fileInfo.fileSizeBytes),
+            fileType: asset.type.name,
+            durationMicros: Value(
+              asset.durationMicros > 0 ? asset.durationMicros : null,
+            ),
+            width: Value(
+              asset.videoInfo.width > 0 ? asset.videoInfo.width : null,
+            ),
+            height: Value(
+              asset.videoInfo.height > 0 ? asset.videoInfo.height : null,
+            ),
+            frameRate: Value(
+              asset.videoInfo.fps > 0 ? asset.videoInfo.fps : null,
+            ),
+            codec: Value(
+              asset.videoInfo.codec.trim().isEmpty
+                  ? null
+                  : asset.videoInfo.codec.trim(),
+            ),
+            audioCodec: Value(
+              asset.audioInfo.codec.trim().isEmpty
+                  ? null
+                  : asset.audioInfo.codec.trim(),
+            ),
+            bitrate: Value(
+              asset.audioInfo.bitrate > 0 ? asset.audioInfo.bitrate : null,
+            ),
+            colorSpace: Value(
+              asset.videoInfo.colorSpace.trim().isEmpty
+                  ? null
+                  : asset.videoInfo.colorSpace.trim(),
+            ),
+            audioChannels: Value(
+              asset.audioInfo.channelCount > 0
+                  ? asset.audioInfo.channelCount
+                  : null,
+            ),
+            audioSampleRate: Value(
+              asset.audioInfo.sampleRate > 0 ? asset.audioInfo.sampleRate : null,
+            ),
+            hasVideo: Value(asset.isVideo || asset.isImage),
+            hasAudio: Value(asset.isVideo || asset.isAudio),
+            thumbnailPath: Value(asset.thumbnailPath),
+            waveformPath: Value(asset.waveformCacheId),
+            proxyPath: Value(asset.proxyPath),
+            proxyStatus: Value(_legacyProxyStatus(asset.proxyStatus)),
+            importMode: Value(asset.storageMode.name),
+            importStatus: const Value('imported'),
+            isMissing: Value(asset.isMissing),
+            errorMessage: Value(asset.isMissing ? asset.availability.name : null),
+            inputColorSpace: Value(
+              asset.videoInfo.colorSpace.trim().isEmpty
+                  ? 'auto'
+                  : asset.videoInfo.colorSpace.trim(),
+            ),
+            isHdr: Value(asset.videoInfo.hasHdr),
+            lastKnownModifiedAt: Value(asset.fileInfo.fileModifiedAt),
+          ),
+        );
+  }
+
+  String _legacyProxyStatus(NleProxyStatus status) {
+    return switch (status) {
+      NleProxyStatus.none => 'not_needed',
+      NleProxyStatus.queued => 'queued',
+      NleProxyStatus.generating => 'generating',
+      NleProxyStatus.ready => 'ready',
+      NleProxyStatus.failed => 'failed',
+    };
   }
 
   NleMediaAsset _assetFromRow(db.MediaAsset row) {
