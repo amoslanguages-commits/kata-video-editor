@@ -172,6 +172,9 @@ class NleCompositedExportRenderer(
             }
 
             if (audioTracks.isNotEmpty()) {
+                if (!muxerStarted || muxerVideoTrack < 0 || muxerAudioTracks.isEmpty()) {
+                    throw IllegalStateException("Muxer was not ready for timeline audio tracks.")
+                }
                 emit("export_progress", mapOf("stage" to "Muxing audio", "progress" to 90))
                 writeAudioTracks(
                     audioTracks = muxerAudioTracks,
