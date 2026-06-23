@@ -17,12 +17,6 @@ import 'package:nle_editor/native_bridge/native_bridge_contract.dart';
 import 'package:nle_editor/native_bridge/native_command.dart';
 import 'package:nle_editor/native_bridge/native_export_job.dart';
 
-/// Triggers a native export job and writes a pending record to the
-/// [ExportJobs] Drift table.
-///
-/// Progress updates and final result are handled asynchronously by
-/// [NativeExportEventController], which listens to native events and
-/// updates the DB row accordingly.
 class NativeExportService {
   final NativeBridgeContract nativeBridge;
   final ExportRepository exportRepository;
@@ -191,8 +185,10 @@ class NativeExportService {
   bool _isOptionalBridgeMissing(NativeCommandResult result, String commandType) {
     final text = '${result.errorCode ?? ''} ${result.message ?? ''}'.toLowerCase();
     return text.contains('not implemented') ||
+        text.contains('no implementation') ||
         text.contains('missingplugin') ||
         text.contains('unknown method') ||
+        text.contains('unimplemented') ||
         text.contains('unrecognized') ||
         text.contains(commandType.toLowerCase());
   }
