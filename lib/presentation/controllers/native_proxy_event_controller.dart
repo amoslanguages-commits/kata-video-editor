@@ -3,6 +3,8 @@ import 'package:drift/drift.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import 'package:nle_editor/data/database/app_database.dart';
+import 'package:nle_editor/domain/cache/cache_index_models.dart';
+import 'package:nle_editor/domain/cache/cache_index_service.dart';
 import 'package:nle_editor/native_bridge/native_bridge_contract.dart';
 import 'package:nle_editor/native_bridge/native_event.dart';
 import 'package:nle_editor/presentation/providers/editor_providers.dart';
@@ -32,19 +34,15 @@ class NativeProxyEventController {
       case NativeEventTypes.proxyStarted:
         await _handleStarted(event);
         break;
-
       case NativeEventTypes.proxyProgress:
         await _handleProgress(event);
         break;
-
       case NativeEventTypes.proxyCompleted:
         await _handleCompleted(event);
         break;
-
       case NativeEventTypes.proxyFailed:
         await _handleFailed(event);
         break;
-
       case NativeEventTypes.proxyCancelled:
         await _handleCancelled(event);
         break;
@@ -70,9 +68,7 @@ class NativeProxyEventController {
 
     await ref.read(assetRepositoryProvider).updateAssetFields(
           assetId,
-          const AssetsCompanion(
-            proxyStatus: Value('processing'),
-          ),
+          const AssetsCompanion(proxyStatus: Value('processing')),
         );
   }
 
@@ -101,6 +97,26 @@ class NativeProxyEventController {
             errorMessage: const Value(null),
           ),
         );
+
+    final projectId = event.projectId;
+    if (projectId != null && projectId.isNotEmpty && outputPath != null && outputPath.isNotEmpty) {
+      await CacheIndexService(
+        projectStorageService: ref.read(projectStorageServiceProvider),
+        assetRepository: ref.read(assetRepositoryProvider),
+      ).registerAssetCacheEntry(
+        projectId: projectId,
+        assetId: assetId,
+        path: outputPath,
+        kind: CacheEntryKind.proxy,
+        metadata: {
+          if (width != null) 'proxyWidth': width,
+          if (height != null) 'proxyHeight': height,
+          if (codec != null) 'proxyCodec': codec,
+          if (fileSize != null) 'fileSize': fileSize,
+          'source': 'native_proxy_completed',
+        },
+      );
+    }
   }
 
   Future<void> _handleFailed(NativeEvent event) async {
