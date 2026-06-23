@@ -7,7 +7,6 @@ import android.media.MediaExtractor
 import android.media.MediaFormat
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
-import kotlin.math.max
 import kotlin.math.min
 
 internal data class NleEncodedAacSample(
@@ -24,15 +23,6 @@ internal data class NleEncodedAacMixdown(
     val durationUs: Long,
 )
 
-/**
- * Mixes all planned timeline audio clips into one interleaved PCM timeline and
- * encodes that mix as a single AAC track for MP4 export.
- *
- * This intentionally replaces the previous "one source track per timeline clip"
- * muxing behavior. It supports overlap summing, per-clip volume, fade-in,
- * fade-out, mute/solo filtering from the planner, proxy/original source policy,
- * and constant-speed timestamp mapping.
- */
 internal class NlePcmAudioMixdownRenderer {
     fun mixToAac(
         plannedTracks: List<NlePlannedAudioTrack>,
@@ -46,14 +36,11 @@ internal class NlePcmAudioMixdownRenderer {
         if (plannedTracks.isEmpty()) return null
         val safeSampleRate = sampleRate.coerceIn(8_000, 192_000)
         val safeChannels = channels.coerceIn(1, 2)
-        val totalFrames = ((durationUs.coerceAtLeast(1L) * safeSampleRate) / 1_000_000L + 1L)
-            .coerceAtLeast(1L)
+        val totalFrames = ((durationUs.coerceAtLeast(1L) * safeSampleRate) / 1_000_000L + 1L).coerceAtLeast(1L)
         val totalSamples = totalFrames * safeChannels
-        val maxSamples = 96_000_000L // ~384 MB float buffer upper guard.
+        val maxSamples = 96_000_000L
         if (totalSamples > maxSamples) {
-            throw IllegalStateException(
-                "Audio mixdown is too large for in-memory export: ${totalFrames} frames, $safeChannels channels."
-            )
+            throw IllegalStateException("Audio mixdown is too large for in-memory export: ${totalFrames} frames, $safeChannels channels.")
         }
 
         val mix = FloatArray(totalSamples.toInt())
@@ -307,7 +294,8 @@ internal class NlePcmAudioMixdownRenderer {
                         val inputBuffer = activeEncoder.getInputBuffer(inputIndex)
                             ?: throw IllegalStateException("AAC encoder input buffer was null.")
                         inputBuffer.clear()
-                        val framesToWrite = min(frameChunk, totalFrames - frameCursor)
+                        val maxFramesForBuffer = (inputBuffer.remaining() / (channels.coerceAtLeast(1) * 2)).coerceAtLeast(0)
+                        val framesToWrite = min(min(frameChunk, totalFrames - frameCursor), maxFramesForBuffer)
                         if (framesToWrite <= 0) {
                             val ptsUs = (frameCursor * 1_000_000L) / sampleRate.coerceAtLeast(1)
                             activeEncoder.queueInputBuffer(inputIndex, 0, 0, ptsUs, MediaCodec.BUFFER_FLAG_END_OF_STREAM)
