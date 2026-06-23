@@ -99,6 +99,7 @@ class NleCompositedExportRenderer(
                     resolvedColorPipeline = null,
                 )
                 android.opengl.EGLES20.glFinish()
+                egl.setPresentationTimeNanos(timelineUs * 1000L)
                 egl.swapBuffers()
                 drainEncoder(
                     encoder = encoder,
