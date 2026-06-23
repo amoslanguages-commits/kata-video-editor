@@ -32,6 +32,7 @@ class TemporaryExportService {
     required int frameRate,
     required String preset,
     required String bitrate,
+    String? outputFileName,
   }) async* {
     yield const TemporaryExportProgress(progress: 2, stage: 'Preparing timeline');
 
@@ -122,10 +123,11 @@ class TemporaryExportService {
         .join('\n');
     await File(concatListPath).writeAsString(concatList);
 
-    final outputPath = p.join(
-      folders.exports,
-      'export_${DateTime.now().millisecondsSinceEpoch}_$preset.mp4',
-    );
+    final fallbackName = 'export_${DateTime.now().millisecondsSinceEpoch}_$preset.mp4';
+    final finalName = outputFileName == null || outputFileName.trim().isEmpty
+        ? fallbackName
+        : outputFileName.trim();
+    final outputPath = p.join(folders.exports, finalName);
 
     final concatCmd = [
       '-y',
