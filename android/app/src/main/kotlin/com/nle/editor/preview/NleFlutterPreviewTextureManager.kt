@@ -1,8 +1,41 @@
 package com.nle.editor.preview
 
+import android.view.Surface
 import io.flutter.view.TextureRegistry
 
 class NleFlutterPreviewTexture(
+    private val textureRegistry: TextureRegistry,
+) {
+    private var entry: TextureRegistry.SurfaceTextureEntry? = null
+    private var surface: Surface? = null
+
+    val textureId: Long
+        get() = entry?.id() ?: -1L
+
+    fun createOrResize(width: Int, height: Int) {
+        val safeWidth = width.coerceAtLeast(16)
+        val safeHeight = height.coerceAtLeast(16)
+        if (entry == null) {
+            entry = textureRegistry.createSurfaceTexture()
+        }
+        entry?.surfaceTexture()?.setDefaultBufferSize(safeWidth, safeHeight)
+        surface?.release()
+        surface = Surface(entry?.surfaceTexture())
+    }
+
+    fun currentSurface(): Surface {
+        return surface ?: throw IllegalStateException("Flutter preview surface has not been created.")
+    }
+
+    fun release() {
+        surface?.release()
+        surface = null
+        entry?.release()
+        entry = null
+    }
+}
+
+class NleManagedFlutterPreviewTexture(
     val id: Long,
     var projectId: String?,
     var width: Int,
@@ -23,11 +56,11 @@ class NleFlutterPreviewTexture(
 class NleFlutterPreviewTextureManager(
     private val textureRegistry: TextureRegistry,
 ) {
-    private val textures = mutableMapOf<Long, NleFlutterPreviewTexture>()
+    private val textures = mutableMapOf<Long, NleManagedFlutterPreviewTexture>()
 
-    fun create(projectId: String?, width: Int, height: Int): NleFlutterPreviewTexture {
+    fun create(projectId: String?, width: Int, height: Int): NleManagedFlutterPreviewTexture {
         val entry = textureRegistry.createSurfaceTexture()
-        val texture = NleFlutterPreviewTexture(
+        val texture = NleManagedFlutterPreviewTexture(
             id = entry.id(),
             projectId = projectId,
             width = width.coerceAtLeast(16),
@@ -67,8 +100,6 @@ class NleFlutterPreviewTextureManager(
         timelineTimeMicros: Long,
         compositorSession: NleGpuPreviewCompositorSession,
     ): Int {
-        // Full-native mode: this legacy GPU-preview path must not draw placeholders.
-        // Real decoded preview is handled through NlePreviewManager / NleTrueDecoderPreviewRenderer.
         return 0
     }
 }
