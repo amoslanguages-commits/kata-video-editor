@@ -77,15 +77,17 @@ class NativeProxyEventController {
   }
 
   Future<void> _handleCompleted(NativeEvent event) async {
-    final assetId = event.payload['assetId']?.toString();
+    final payload = event.payload;
+    final assetId = payload['assetId']?.toString();
     if (assetId == null) return;
 
-    final result = _asMap(event.payload['result']);
-    final outputPath = result['outputPath']?.toString();
-    final width = (result['width'] as num?)?.toInt();
-    final height = (result['height'] as num?)?.toInt();
-    final codec = result['codec']?.toString();
-    final fileSize = (result['fileSize'] as num?)?.toInt();
+    final result = _asMap(payload['result']);
+    final source = result.isEmpty ? payload : result;
+    final outputPath = source['outputPath']?.toString() ?? source['proxyPath']?.toString();
+    final width = (source['width'] as num?)?.toInt() ?? (source['proxyWidth'] as num?)?.toInt();
+    final height = (source['height'] as num?)?.toInt() ?? (source['proxyHeight'] as num?)?.toInt();
+    final codec = source['codec']?.toString() ?? source['proxyCodec']?.toString();
+    final fileSize = (source['fileSize'] as num?)?.toInt();
 
     await ref.read(assetRepositoryProvider).updateAssetFields(
           assetId,
