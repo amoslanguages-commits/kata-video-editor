@@ -202,9 +202,11 @@ class _ExportPresetBuilderPanelState
     }
 
     final device = await ref.read(deviceCapabilityProfileProvider.future);
+    final project = await ref.read(projectRepositoryProvider).getProject(widget.projectId);
     final qualityReport = const ExportQualityAdvisor().check(
       preset: preset,
       device: device,
+      durationMicros: project?.durationMicros,
     );
 
     if (qualityReport.hasIssues) {
