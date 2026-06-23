@@ -3,6 +3,8 @@ import AVFoundation
 
 final class IosNleCompositedExportRenderer {
     private let eventEmitter: IosNleEventEmitter
+    private var sessions: [String: AVAssetExportSession] = [:]
+    private let lock = NSLock()
 
     init(eventEmitter: IosNleEventEmitter) {
         self.eventEmitter = eventEmitter
@@ -59,7 +61,7 @@ final class IosNleCompositedExportRenderer {
             start: .zero,
             duration: CMTime(value: max(Int64(1), job.durationMicros), timescale: 1_000_000)
         )
-        videoInstruction.layerInstructions = layerInstructions.reversed()
+        videoInstruction.layerInstructions = Array(layerInstructions.reversed())
 
         let videoComposition = AVMutableVideoComposition()
         videoComposition.renderSize = CGSize(width: job.width, height: job.height)
@@ -84,10 +86,17 @@ final class IosNleCompositedExportRenderer {
         session.videoComposition = videoComposition
         session.shouldOptimizeForNetworkUse = true
 
+        lock.lock()
+        sessions[jobId] = session
+        lock.unlock()
+
         startProgressTimer(jobId: jobId, projectId: projectId, session: session)
 
         session.exportAsynchronously { [weak self, weak session] in
             guard let self, let session else { return }
+            self.lock.lock()
+            self.sessions.removeValue(forKey: jobId)
+            self.lock.unlock()
             switch session.status {
             case .completed:
                 let size: Int64
@@ -117,6 +126,14 @@ final class IosNleCompositedExportRenderer {
         }
 
         return ["success": true, "jobId": jobId, "accepted": true, "nativeRenderer": "ios_avfoundation_compositor_v1"]
+    }
+
+    func cancel(jobId: String) -> [String: Any?] {
+        lock.lock()
+        let session = sessions.removeValue(forKey: jobId)
+        lock.unlock()
+        session?.cancelExport()
+        return ["success": true, "jobId": jobId, "cancelled": true]
     }
 
     private func startProgressTimer(jobId: String, projectId: String, session: AVAssetExportSession) {
