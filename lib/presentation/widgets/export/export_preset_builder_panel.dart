@@ -106,6 +106,7 @@ class _ExportPresetBuilderPanelState
                       previewFileName: _buildOutputFileName(preset, projectName),
                       isExporting: _exportingPresetId == preset.id,
                       onUse: () => _startExportWithPreset(preset),
+                      onClone: () => _clonePreset(preset),
                     ),
                   ),
                   const SizedBox(height: 20),
@@ -179,6 +180,42 @@ class _ExportPresetBuilderPanelState
       }
     } finally {
       if (mounted) setState(() => _saving = false);
+    }
+  }
+
+  Future<void> _clonePreset(NleExportPresetSpec source) async {
+    final now = DateTime.now();
+    final clonedName = '${source.name} Copy';
+    final clone = source.copyWith(
+      id: 'custom_${_uuid.v4()}',
+      name: clonedName,
+      description: 'Custom copy of ${source.name}.',
+      isBuiltIn: false,
+      createdAt: now,
+      updatedAt: now,
+    );
+
+    setState(() {
+      _nameController.text = clonedName;
+      _widthController.text = source.width.toString();
+      _heightController.text = source.height.toString();
+      _bitrateController.text = source.bitrateMbps.toString();
+      _frameRate = source.frameRate;
+      _format = source.format;
+      _platform = source.platform;
+      _removeWatermark = source.removeWatermark;
+    });
+
+    await ref.read(exportPresetStoreServiceProvider).saveCustomPreset(
+          projectId: widget.projectId,
+          preset: clone,
+        );
+    ref.invalidate(projectExportPresetsProvider(widget.projectId));
+
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Cloned ${source.name} into custom presets.')),
+      );
     }
   }
 
@@ -625,6 +662,7 @@ class _PresetCard extends StatelessWidget {
   final String previewFileName;
   final bool isExporting;
   final VoidCallback onUse;
+  final VoidCallback? onClone;
   final VoidCallback? onRemove;
 
   const _PresetCard({
@@ -632,6 +670,7 @@ class _PresetCard extends StatelessWidget {
     required this.previewFileName,
     required this.isExporting,
     required this.onUse,
+    this.onClone,
     this.onRemove,
   });
 
@@ -719,14 +758,35 @@ class _PresetCard extends StatelessWidget {
             ),
           ),
           const SizedBox(height: 12),
-          SizedBox(
-            width: double.infinity,
-            child: ElevatedButton.icon(
-              onPressed: isExporting ? null : onUse,
-              icon: const Icon(Icons.rocket_launch_rounded),
-              label: Text(isExporting ? 'Starting export...' : 'Start Export'),
+          if (onClone == null)
+            SizedBox(
+              width: double.infinity,
+              child: ElevatedButton.icon(
+                onPressed: isExporting ? null : onUse,
+                icon: const Icon(Icons.rocket_launch_rounded),
+                label: Text(isExporting ? 'Starting export...' : 'Start Export'),
+              ),
+            )
+          else
+            Row(
+              children: [
+                Expanded(
+                  child: OutlinedButton.icon(
+                    onPressed: onClone,
+                    icon: const Icon(Icons.copy_all_rounded),
+                    label: const Text('Clone'),
+                  ),
+                ),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: ElevatedButton.icon(
+                    onPressed: isExporting ? null : onUse,
+                    icon: const Icon(Icons.rocket_launch_rounded),
+                    label: Text(isExporting ? 'Starting...' : 'Export'),
+                  ),
+                ),
+              ],
             ),
-          ),
         ],
       ),
     );
