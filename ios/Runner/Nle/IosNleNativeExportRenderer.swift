@@ -3,11 +3,13 @@ import AVFoundation
 
 final class IosNleNativeExportRenderer {
     private let eventEmitter: IosNleEventEmitter
+    private let compositedRenderer: IosNleCompositedExportRenderer
     private var sessions: [String: AVAssetExportSession] = [:]
     private let lock = NSLock()
 
     init(eventEmitter: IosNleEventEmitter) {
         self.eventEmitter = eventEmitter
+        self.compositedRenderer = IosNleCompositedExportRenderer(eventEmitter: eventEmitter)
     }
 
     func start(
@@ -17,7 +19,7 @@ final class IosNleNativeExportRenderer {
         outputPath: String
     ) throws -> [String: Any?] {
         if requiresCompositedExport(renderGraphJson) {
-            return try IosNleCompositedExportRenderer(eventEmitter: eventEmitter).start(
+            return try compositedRenderer.start(
                 projectId: projectId,
                 jobId: jobId,
                 renderGraphJson: renderGraphJson,
@@ -25,16 +27,9 @@ final class IosNleNativeExportRenderer {
             )
         }
 
-        let job = try parseSingleClipJob(
-            projectId: projectId,
-            renderGraphJson: renderGraphJson,
-            outputPath: outputPath
-        )
+        let job = try parseSingleClipJob(projectId: projectId, renderGraphJson: renderGraphJson, outputPath: outputPath)
 
-        emit(jobId: jobId, projectId: projectId, type: IosNleEventType.exportStarted, payload: [
-            "stage": "Preparing",
-            "progress": NSNumber(value: 0)
-        ])
+        emit(jobId: jobId, projectId: projectId, type: IosNleEventType.exportStarted, payload: ["stage": "Preparing", "progress": NSNumber(value: 0)])
 
         let composition = AVMutableComposition()
         let asset = AVAsset(url: job.assetUrl)
@@ -46,11 +41,7 @@ final class IosNleNativeExportRenderer {
         guard let sourceVideoTrack = asset.tracks(withMediaType: .video).first else {
             throw NSError(domain: "IosNleNativeExportRenderer", code: 10, userInfo: [NSLocalizedDescriptionKey: "Source asset has no video track."])
         }
-
-        guard let compositionVideoTrack = composition.addMutableTrack(
-            withMediaType: .video,
-            preferredTrackID: kCMPersistentTrackID_Invalid
-        ) else {
+        guard let compositionVideoTrack = composition.addMutableTrack(withMediaType: .video, preferredTrackID: kCMPersistentTrackID_Invalid) else {
             throw NSError(domain: "IosNleNativeExportRenderer", code: 11, userInfo: [NSLocalizedDescriptionKey: "Could not create video composition track."])
         }
 
@@ -58,27 +49,15 @@ final class IosNleNativeExportRenderer {
         compositionVideoTrack.preferredTransform = sourceVideoTrack.preferredTransform
 
         if let sourceAudioTrack = asset.tracks(withMediaType: .audio).first,
-           let compositionAudioTrack = composition.addMutableTrack(
-                withMediaType: .audio,
-                preferredTrackID: kCMPersistentTrackID_Invalid
-           ) {
+           let compositionAudioTrack = composition.addMutableTrack(withMediaType: .audio, preferredTrackID: kCMPersistentTrackID_Invalid) {
             try? compositionAudioTrack.insertTimeRange(sourceRange, of: sourceAudioTrack, at: .zero)
         }
 
         let outputUrl = URL(fileURLWithPath: outputPath)
-        try FileManager.default.createDirectory(
-            at: outputUrl.deletingLastPathComponent(),
-            withIntermediateDirectories: true,
-            attributes: nil
-        )
-        if FileManager.default.fileExists(atPath: outputPath) {
-            try FileManager.default.removeItem(at: outputUrl)
-        }
+        try FileManager.default.createDirectory(at: outputUrl.deletingLastPathComponent(), withIntermediateDirectories: true, attributes: nil)
+        if FileManager.default.fileExists(atPath: outputPath) { try FileManager.default.removeItem(at: outputUrl) }
 
-        guard let session = AVAssetExportSession(
-            asset: composition,
-            presetName: AVAssetExportPresetHighestQuality
-        ) else {
+        guard let session = AVAssetExportSession(asset: composition, presetName: AVAssetExportPresetHighestQuality) else {
             throw NSError(domain: "IosNleNativeExportRenderer", code: 12, userInfo: [NSLocalizedDescriptionKey: "Could not create AVAssetExportSession."])
         }
 
@@ -97,33 +76,20 @@ final class IosNleNativeExportRenderer {
             self.lock.lock()
             self.sessions.removeValue(forKey: jobId)
             self.lock.unlock()
-
             guard let session else { return }
             switch session.status {
             case .completed:
                 let size: Int64
-                if let attrs = try? FileManager.default.attributesOfItem(atPath: outputPath),
-                   let number = attrs[.size] as? NSNumber {
-                    size = number.int64Value
-                } else {
-                    size = 0
-                }
+                if let attrs = try? FileManager.default.attributesOfItem(atPath: outputPath), let number = attrs[.size] as? NSNumber { size = number.int64Value } else { size = 0 }
                 self.emit(jobId: jobId, projectId: projectId, type: IosNleEventType.exportCompleted, payload: [
                     "stage": "Complete",
                     "progress": NSNumber(value: 100),
-                    "result": [
-                        "outputPath": outputPath,
-                        "fileSize": NSNumber(value: size),
-                        "renderer": "ios_avasset_export_session_v1"
-                    ]
+                    "result": ["outputPath": outputPath, "fileSize": NSNumber(value: size), "renderer": "ios_avasset_export_session_v1"]
                 ])
             case .cancelled:
                 self.emit(jobId: jobId, projectId: projectId, type: IosNleEventType.exportCancelled, payload: ["stage": "Cancelled"])
             default:
-                self.emit(jobId: jobId, projectId: projectId, type: IosNleEventType.exportFailed, payload: [
-                    "stage": "Failed",
-                    "errorMessage": session.error?.localizedDescription ?? "iOS native export failed."
-                ])
+                self.emit(jobId: jobId, projectId: projectId, type: IosNleEventType.exportFailed, payload: ["stage": "Failed", "errorMessage": session.error?.localizedDescription ?? "iOS native export failed."])
             }
         }
 
@@ -134,8 +100,11 @@ final class IosNleNativeExportRenderer {
         lock.lock()
         let session = sessions.removeValue(forKey: jobId)
         lock.unlock()
-        session?.cancelExport()
-        return ["success": true, "jobId": jobId, "cancelled": true]
+        if let session {
+            session.cancelExport()
+            return ["success": true, "jobId": jobId, "cancelled": true]
+        }
+        return compositedRenderer.cancel(jobId: jobId)
     }
 
     private func startProgressTimer(jobId: String, projectId: String, session: AVAssetExportSession) {
@@ -145,10 +114,7 @@ final class IosNleNativeExportRenderer {
                 let progress = min(97, max(1, Int(session.progress * 97.0)))
                 if progress != lastProgress {
                     lastProgress = progress
-                    self?.emit(jobId: jobId, projectId: projectId, type: IosNleEventType.exportProgress, payload: [
-                        "stage": "Exporting",
-                        "progress": NSNumber(value: progress)
-                    ])
+                    self?.emit(jobId: jobId, projectId: projectId, type: IosNleEventType.exportProgress, payload: ["stage": "Exporting", "progress": NSNumber(value: progress)])
                 }
                 Thread.sleep(forTimeInterval: 0.25)
             }
@@ -170,11 +136,7 @@ final class IosNleNativeExportRenderer {
         return false
     }
 
-    private func parseSingleClipJob(
-        projectId: String,
-        renderGraphJson: String,
-        outputPath: String
-    ) throws -> IosExportJobDescriptor {
+    private func parseSingleClipJob(projectId: String, renderGraphJson: String, outputPath: String) throws -> IosExportJobDescriptor {
         let root = try parseRoot(renderGraphJson)
         let assets = array(root["assets"])
         let tracks = array(root["tracks"])
@@ -203,14 +165,7 @@ final class IosNleNativeExportRenderer {
         let sourceStart = int64(clip["sourceInMicros"]) ?? int64(clip["sourceStartMicros"]) ?? 0
         let fallbackEnd = sourceStart + ((int64(clip["timelineEndMicros"]) ?? 0) - (int64(clip["timelineStartMicros"]) ?? 0))
         let sourceEnd = max(sourceStart + 1, int64(clip["sourceOutMicros"]) ?? int64(clip["sourceEndMicros"]) ?? fallbackEnd)
-
-        return IosExportJobDescriptor(
-            projectId: projectId,
-            assetUrl: url(from: path),
-            sourceStartMicros: sourceStart,
-            sourceEndMicros: sourceEnd,
-            outputPath: outputPath
-        )
+        return IosExportJobDescriptor(projectId: projectId, assetUrl: url(from: path), sourceStartMicros: sourceStart, sourceEndMicros: sourceEnd, outputPath: outputPath)
     }
 
     private func parseRoot(_ json: String) throws -> [String: Any] {
