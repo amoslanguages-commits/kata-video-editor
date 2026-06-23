@@ -94,9 +94,9 @@ final class IosNlePreviewTexture: NSObject, FlutterTexture {
 
     func toMap() -> [String: Any?] {
         return [
-            "textureId": textureId,
-            "width": width,
-            "height": height,
+            "textureId": NSNumber(value: textureId),
+            "width": NSNumber(value: width),
+            "height": NSNumber(value: height),
             "projectId": projectId,
             "sessionId": sessionId,
             "platform": "ios"
