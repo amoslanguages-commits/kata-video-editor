@@ -62,6 +62,12 @@ class NativeEventTypes {
   static const String previewSurfaceDisposed = 'preview_surface_disposed';
   static const String previewFrameRendered   = 'preview_frame_rendered';
 
+  // ── Full-native true preview path ────────────────────────────────────────
+  static const String previewTextureReady = 'preview_texture_ready';
+  static const String previewDroppedFrame = 'preview_dropped_frame';
+  static const String previewEnded = 'preview_ended';
+  static const String previewError = 'preview_error';
+
   static const String audioEngineStateChanged = 'audio_engine_state_changed';
   static const String playbackEnded           = 'playback_ended';
 
