@@ -10,6 +10,8 @@ class NleExportPresetSpec {
   final String format;
   final bool removeWatermark;
   final bool isBuiltIn;
+  final bool isFavorite;
+  final int sortOrder;
   final DateTime createdAt;
   final DateTime updatedAt;
 
@@ -25,6 +27,8 @@ class NleExportPresetSpec {
     required this.format,
     required this.removeWatermark,
     required this.isBuiltIn,
+    this.isFavorite = false,
+    this.sortOrder = 0,
     required this.createdAt,
     required this.updatedAt,
   });
@@ -43,6 +47,8 @@ class NleExportPresetSpec {
       'format': format,
       'removeWatermark': removeWatermark,
       'platform': platform,
+      'isFavoritePreset': isFavorite,
+      'presetSortOrder': sortOrder,
     };
   }
 
@@ -58,6 +64,8 @@ class NleExportPresetSpec {
     String? format,
     bool? removeWatermark,
     bool? isBuiltIn,
+    bool? isFavorite,
+    int? sortOrder,
     DateTime? createdAt,
     DateTime? updatedAt,
   }) {
@@ -73,6 +81,8 @@ class NleExportPresetSpec {
       format: format ?? this.format,
       removeWatermark: removeWatermark ?? this.removeWatermark,
       isBuiltIn: isBuiltIn ?? this.isBuiltIn,
+      isFavorite: isFavorite ?? this.isFavorite,
+      sortOrder: sortOrder ?? this.sortOrder,
       createdAt: createdAt ?? this.createdAt,
       updatedAt: updatedAt ?? this.updatedAt,
     );
@@ -91,6 +101,8 @@ class NleExportPresetSpec {
       'format': format,
       'removeWatermark': removeWatermark,
       'isBuiltIn': isBuiltIn,
+      'isFavorite': isFavorite,
+      'sortOrder': sortOrder,
       'createdAt': createdAt.toIso8601String(),
       'updatedAt': updatedAt.toIso8601String(),
     };
@@ -110,6 +122,8 @@ class NleExportPresetSpec {
       format: json['format']?.toString() ?? 'mp4',
       removeWatermark: json['removeWatermark'] == true,
       isBuiltIn: json['isBuiltIn'] == true,
+      isFavorite: json['isFavorite'] == true,
+      sortOrder: _asInt(json['sortOrder'], 0),
       createdAt: DateTime.tryParse(json['createdAt']?.toString() ?? '') ?? now,
       updatedAt: DateTime.tryParse(json['updatedAt']?.toString() ?? '') ?? now,
     );
@@ -140,6 +154,7 @@ class NleExportPresetCatalog {
         format: 'mp4',
         removeWatermark: false,
         isBuiltIn: true,
+        sortOrder: 10,
         createdAt: now,
         updatedAt: now,
       ),
@@ -155,6 +170,7 @@ class NleExportPresetCatalog {
         format: 'mp4',
         removeWatermark: false,
         isBuiltIn: true,
+        sortOrder: 20,
         createdAt: now,
         updatedAt: now,
       ),
@@ -170,6 +186,7 @@ class NleExportPresetCatalog {
         format: 'mp4',
         removeWatermark: false,
         isBuiltIn: true,
+        sortOrder: 30,
         createdAt: now,
         updatedAt: now,
       ),
@@ -185,6 +202,7 @@ class NleExportPresetCatalog {
         format: 'mp4',
         removeWatermark: false,
         isBuiltIn: true,
+        sortOrder: 40,
         createdAt: now,
         updatedAt: now,
       ),
@@ -200,6 +218,7 @@ class NleExportPresetCatalog {
         format: 'mp4',
         removeWatermark: false,
         isBuiltIn: true,
+        sortOrder: 50,
         createdAt: now,
         updatedAt: now,
       ),
