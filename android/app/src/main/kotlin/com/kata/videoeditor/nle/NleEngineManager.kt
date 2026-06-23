@@ -1,6 +1,7 @@
 package com.kata.videoeditor.nle
 
 import android.content.Context
+import com.kata.videoeditor.nle.export.NleNativeExportRenderer
 import com.nle.editor.preview.NleFlutterPreviewTextureManager
 import com.nle.editor.preview.NlePreviewConfig
 import com.nle.editor.preview.NlePreviewEventSink
@@ -23,6 +24,7 @@ class NleEngineManager(
     private val compositorSession = com.nle.editor.preview.NleGpuPreviewCompositorSession()
     private val truePreviewManagers = mutableMapOf<String, NlePreviewManager>()
     private val scopeManager = NleScopeManager()
+    private val nativeExportRenderer = NleNativeExportRenderer(eventEmitter)
 
     fun initialize(): Map<String, Any?> {
         initialized = true
@@ -155,12 +157,18 @@ class NleEngineManager(
 
     fun startExportJob(projectId: String?, jobId: String, renderGraphJson: String, outputPath: String, profileMap: Map<String, Any?>, commandId: String?): Map<String, Any?> {
         requireInit()
-        return mapOf("jobId" to jobId, "accepted" to true)
+        return nativeExportRenderer.start(
+            projectId = projectId,
+            jobId = jobId,
+            renderGraphJson = renderGraphJson,
+            outputPath = outputPath,
+            profileMap = profileMap,
+        )
     }
 
     fun cancelExportJob(jobId: String, commandId: String?): Map<String, Any?> {
         requireInit()
-        return mapOf("jobId" to jobId, "cancelled" to true)
+        return nativeExportRenderer.cancel(jobId)
     }
 
     fun probeDeviceCapabilities(): Map<String, Any?> {
