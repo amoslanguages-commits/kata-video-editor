@@ -11,7 +11,9 @@ final class IosNleProxyJobFoundation {
         outputPath: String,
         eventEmitter: IosNleEventEmitter
     ) {
-        let renderer = IosNleNativeProxyRenderer(eventEmitter: eventEmitter)
+        let renderer = IosNleNativeProxyRenderer(eventEmitter: eventEmitter) { finishedJobId in
+            IosNleProxyJobFoundation.shared.release(jobId: finishedJobId)
+        }
         IosNleProxyJobFoundation.shared.retain(renderer: renderer, jobId: jobId)
         do {
             _ = try renderer.start(
@@ -63,7 +65,7 @@ private final class IosNleProxyJobStore {
 
     func cancel(jobId: String) -> [String: Any?] {
         lock.lock()
-        let renderer = renderers.removeValue(forKey: jobId)
+        let renderer = renderers[jobId]
         lock.unlock()
         return renderer?.cancel(jobId: jobId) ?? ["success": true, "jobId": jobId, "cancelled": true]
     }
