@@ -66,7 +66,7 @@ final class IosNleCompositedExportRenderer {
         videoInstruction.layerInstructions = Array(layerInstructions.reversed())
 
         let videoComposition = AVMutableVideoComposition()
-        videoComposition.renderSize = CGSize(width: job.width, height: job.height)
+        videoComposition.renderSize = CGSize(width: CGFloat(job.width), height: CGFloat(job.height))
         videoComposition.frameDuration = CMTime(value: 1, timescale: CMTimeScale(max(1, job.frameRate)))
         videoComposition.instructions = [videoInstruction]
         attachOverlayLayers(videoComposition: videoComposition, job: job)
@@ -125,7 +125,7 @@ final class IosNleCompositedExportRenderer {
         guard !job.overlayClips.isEmpty else { return }
         let parentLayer = CALayer()
         let videoLayer = CALayer()
-        let frame = CGRect(x: 0, y: 0, width: job.width, height: job.height)
+        let frame = CGRect(x: 0, y: 0, width: CGFloat(job.width), height: CGFloat(job.height))
         parentLayer.frame = frame
         videoLayer.frame = frame
         parentLayer.addSublayer(videoLayer)
@@ -151,7 +151,7 @@ final class IosNleCompositedExportRenderer {
         textLayer.foregroundColor = UIColor.white.cgColor
         textLayer.alignmentMode = .center
         textLayer.contentsScale = UIScreen.main.scale
-        textLayer.fontSize = max(18, CGFloat(job.height) * 0.055 * CGFloat(overlay.scale))
+        textLayer.fontSize = max(CGFloat(18), CGFloat(job.height) * 0.055 * CGFloat(overlay.scale))
         textLayer.opacity = Float(overlay.opacity)
         textLayer.frame = overlayFrame(overlay: overlay, job: job, defaultWidth: Double(job.width) * 0.8, defaultHeight: Double(job.height) * 0.18)
         return textLayer
@@ -174,7 +174,7 @@ final class IosNleCompositedExportRenderer {
         let height = defaultHeight * overlay.scale
         let centerX = Double(job.width) * 0.5 + overlay.positionX
         let centerY = Double(job.height) * 0.5 - overlay.positionY
-        return CGRect(x: centerX - width * 0.5, y: centerY - height * 0.5, width: width, height: height)
+        return CGRect(x: CGFloat(centerX - width * 0.5), y: CGFloat(centerY - height * 0.5), width: CGFloat(width), height: CGFloat(height))
     }
 
     private func addVisibilityAnimation(to layer: CALayer, overlay: IosOverlayClip, durationMicros: Int64) {
@@ -193,7 +193,14 @@ final class IosNleCompositedExportRenderer {
             NSNumber(value: min(1.0, end + epsilon)),
             NSNumber(value: 1),
         ]
-        animation.values = [0, 0, overlay.opacity, overlay.opacity, 0, 0]
+        animation.values = [
+            NSNumber(value: 0),
+            NSNumber(value: 0),
+            NSNumber(value: overlay.opacity),
+            NSNumber(value: overlay.opacity),
+            NSNumber(value: 0),
+            NSNumber(value: 0),
+        ]
         animation.isRemovedOnCompletion = false
         layer.add(animation, forKey: "timelineOpacity")
     }
