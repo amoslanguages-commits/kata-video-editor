@@ -154,6 +154,7 @@ class NativeExportEventController {
       }
       final fileSize = await outputFile.length();
       if (fileSize <= 0) {
+        await _deleteOutputIfPresent(outputPath);
         await _markCompletionInvalid(jobId, 'Native export output file is empty: $outputPath');
         return;
       }
@@ -175,6 +176,7 @@ class NativeExportEventController {
   }
 
   Future<void> _markCompletionInvalid(String jobId, String message) async {
+    await _deletePartialOutputForJob(jobId);
     await ref.read(exportRepositoryProvider).updateExportJob(
           jobId,
           ExportJobsCompanion(
@@ -193,6 +195,7 @@ class NativeExportEventController {
     final error = event.payload['errorMessage']?.toString() ?? 'Export failed';
 
     try {
+      await _deletePartialOutputForJob(jobId);
       await ref.read(exportRepositoryProvider).updateExportJob(
             jobId,
             ExportJobsCompanion(
@@ -212,6 +215,7 @@ class NativeExportEventController {
     if (jobId == null) return;
 
     try {
+      await _deletePartialOutputForJob(jobId);
       await ref.read(exportRepositoryProvider).updateExportJob(
             jobId,
             ExportJobsCompanion(
@@ -222,6 +226,22 @@ class NativeExportEventController {
           );
     } catch (e) {
       debugPrint('[NativeExportEventController] exportCancelled error: $e');
+    }
+  }
+
+  Future<void> _deletePartialOutputForJob(String jobId) async {
+    final job = await ref.read(exportRepositoryProvider).getExportJob(jobId);
+    final outputPath = job?.outputPath;
+    if (outputPath == null || outputPath.trim().isEmpty) return;
+    await _deleteOutputIfPresent(outputPath);
+  }
+
+  Future<void> _deleteOutputIfPresent(String outputPath) async {
+    try {
+      final file = File(outputPath);
+      if (await file.exists()) await file.delete();
+    } catch (e) {
+      debugPrint('[NativeExportEventController] partial output cleanup failed: $e');
     }
   }
 
