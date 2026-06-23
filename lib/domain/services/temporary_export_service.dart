@@ -8,6 +8,7 @@ import 'package:path/path.dart' as p;
 
 import 'package:nle_editor/data/repositories/asset_repository.dart';
 import 'package:nle_editor/data/repositories/timeline_repository.dart';
+import 'package:nle_editor/domain/export/export_filename_versioner.dart';
 import 'package:nle_editor/domain/models/temporary_export_progress.dart';
 import 'package:nle_editor/domain/services/project_storage_service.dart';
 
@@ -124,10 +125,13 @@ class TemporaryExportService {
     await File(concatListPath).writeAsString(concatList);
 
     final fallbackName = 'export_${DateTime.now().millisecondsSinceEpoch}_$preset.mp4';
-    final finalName = outputFileName == null || outputFileName.trim().isEmpty
+    final requestedName = outputFileName == null || outputFileName.trim().isEmpty
         ? fallbackName
         : outputFileName.trim();
-    final outputPath = p.join(folders.exports, finalName);
+    final outputPath = await const ExportFilenameVersioner().uniquePath(
+      directoryPath: folders.exports,
+      fileName: requestedName,
+    );
 
     final concatCmd = [
       '-y',
