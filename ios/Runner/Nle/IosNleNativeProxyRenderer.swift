@@ -5,6 +5,7 @@ final class IosNleNativeProxyRenderer {
     private let eventEmitter: IosNleEventEmitter
     private let onFinished: ((String) -> Void)?
     private var sessions: [String: AVAssetExportSession] = [:]
+    private var jobInfo: [String: (projectId: String?, assetId: String)] = [:]
     private let lock = NSLock()
 
     init(eventEmitter: IosNleEventEmitter, onFinished: ((String) -> Void)? = nil) {
@@ -50,13 +51,14 @@ final class IosNleNativeProxyRenderer {
 
         lock.lock()
         sessions[jobId] = session
+        jobInfo[jobId] = (projectId: projectId, assetId: assetId)
         lock.unlock()
 
         startProgressTimer(jobId: jobId, projectId: projectId, assetId: assetId, session: session)
 
         session.exportAsynchronously { [weak self, weak session] in
             guard let self, let session else { return }
-            defer { self.onFinished?(jobId) }
+            defer { self.finish(jobId: jobId) }
             self.lock.lock()
             self.sessions.removeValue(forKey: jobId)
             self.lock.unlock()
@@ -99,10 +101,24 @@ final class IosNleNativeProxyRenderer {
     func cancel(jobId: String) -> [String: Any?] {
         lock.lock()
         let session = sessions.removeValue(forKey: jobId)
+        let info = jobInfo[jobId]
         lock.unlock()
         session?.cancelExport()
-        onFinished?(jobId)
+        if let info {
+            emit(jobId: jobId, projectId: info.projectId, type: "proxy_cancelled", payload: [
+                "assetId": info.assetId,
+                "stage": "Cancelled"
+            ])
+        }
+        finish(jobId: jobId)
         return ["success": true, "jobId": jobId, "cancelled": true]
+    }
+
+    private func finish(jobId: String) {
+        lock.lock()
+        jobInfo.removeValue(forKey: jobId)
+        lock.unlock()
+        onFinished?(jobId)
     }
 
     private func startProgressTimer(jobId: String, projectId: String?, assetId: String, session: AVAssetExportSession) {
