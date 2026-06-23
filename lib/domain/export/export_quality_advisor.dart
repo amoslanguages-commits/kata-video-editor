@@ -28,9 +28,12 @@ class ExportQualityAdvisor {
   ExportQualityReport check({
     required NleExportPresetSpec preset,
     required DeviceCapabilityProfile device,
+    int? durationMicros,
   }) {
     final issues = <ExportQualityIssue>[];
     final highResolution = preset.height >= 2160 || preset.width >= 3840;
+    final estimatedBytes = _estimateBytes(durationMicros, preset.bitrateMbps);
+    final freeBytes = device.runtime.availableStorageBytes;
 
     if (preset.height > device.limits.maxExportHeight) {
       issues.add(ExportQualityIssue(
@@ -54,6 +57,23 @@ class ExportQualityAdvisor {
         title: 'High resolution not supported',
         message: 'Use a lower resolution preset on this device.',
       ));
+    }
+
+    if (estimatedBytes != null && freeBytes != null) {
+      final requiredBytes = estimatedBytes + 512 * 1024 * 1024;
+      if (freeBytes < requiredBytes) {
+        issues.add(ExportQualityIssue(
+          stop: true,
+          title: 'Free space is low',
+          message: 'Estimated file size is ${_formatBytes(estimatedBytes)}.',
+        ));
+      } else if (freeBytes < requiredBytes * 2) {
+        issues.add(ExportQualityIssue(
+          stop: false,
+          title: 'Free space warning',
+          message: 'Estimated file size is ${_formatBytes(estimatedBytes)}.',
+        ));
+      }
     }
 
     if (highResolution && device.limits.proxyRequiredFor4k) {
@@ -89,5 +109,20 @@ class ExportQualityAdvisor {
     }
 
     return ExportQualityReport(issues);
+  }
+
+  int? _estimateBytes(int? durationMicros, int bitrateMbps) {
+    if (durationMicros == null || durationMicros <= 0 || bitrateMbps <= 0) {
+      return null;
+    }
+    final seconds = durationMicros / 1000000.0;
+    return (seconds * bitrateMbps * 1000000 / 8 * 1.18).round();
+  }
+
+  String _formatBytes(int bytes) {
+    const gb = 1024 * 1024 * 1024;
+    const mb = 1024 * 1024;
+    if (bytes >= gb) return '${(bytes / gb).toStringAsFixed(1)} GB';
+    return '${(bytes / mb).ceil()} MB';
   }
 }
