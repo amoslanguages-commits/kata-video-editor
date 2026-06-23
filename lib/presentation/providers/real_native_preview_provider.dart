@@ -58,6 +58,42 @@ class RealNativePreviewController extends StateNotifier<NativePreviewSessionStat
     }
   }
 
+  Future<void> play() async {
+    try {
+      final result = await ref.read(nativeBridgeProvider).sendCommand(
+            _commands.play(monitorId: state.monitorId, fromMicros: state.playheadMicros),
+          );
+      if (!result.accepted) throw StateError(result.message ?? 'Native preview play failed.');
+      state = state.copyWith(phase: NativePreviewSessionPhase.playing, clearError: true);
+    } catch (error) {
+      _error(error);
+    }
+  }
+
+  Future<void> pause() async {
+    try {
+      final result = await ref.read(nativeBridgeProvider).sendCommand(
+            _commands.pause(monitorId: state.monitorId),
+          );
+      if (!result.accepted) throw StateError(result.message ?? 'Native preview pause failed.');
+      state = state.copyWith(phase: NativePreviewSessionPhase.paused, clearError: true);
+    } catch (error) {
+      _error(error);
+    }
+  }
+
+  Future<void> stop() async {
+    try {
+      final result = await ref.read(nativeBridgeProvider).sendCommand(
+            _commands.stop(monitorId: state.monitorId),
+          );
+      if (!result.accepted) throw StateError(result.message ?? 'Native preview stop failed.');
+      state = state.copyWith(phase: NativePreviewSessionPhase.stopped, clearError: true);
+    } catch (error) {
+      _error(error);
+    }
+  }
+
   void _onEvent(NativeEvent event) {
     final monitorId = event.payload['monitorId']?.toString();
     if (monitorId != null && monitorId != state.monitorId) return;
