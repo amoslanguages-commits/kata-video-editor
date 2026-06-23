@@ -1,4 +1,7 @@
+import 'dart:convert';
+
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:path/path.dart' as p;
 import 'package:uuid/uuid.dart';
@@ -38,9 +41,12 @@ class _ExportPresetBuilderPanelState
   int _frameRate = 30;
   String _format = 'mp4';
   String _platform = 'Custom';
+  String _filenamePattern = ExportFilenamePatterns.defaultPattern;
   bool _removeWatermark = false;
   bool _saving = false;
   String? _exportingPresetId;
+  String? _editingPresetId;
+  DateTime? _editingCreatedAt;
 
   @override
   void dispose() {
@@ -75,6 +81,7 @@ class _ExportPresetBuilderPanelState
             future: ref.read(projectRepositoryProvider).getProject(widget.projectId),
             builder: (context, snapshot) {
               final projectName = snapshot.data?.name ?? 'Project';
+              final draftPreset = _draftPreset();
 
               return ListView(
                 padding: const EdgeInsets.all(16),
@@ -83,6 +90,7 @@ class _ExportPresetBuilderPanelState
                   const SizedBox(height: 14),
                   _BuilderCard(
                     saving: _saving,
+                    editing: _editingPresetId != null,
                     nameController: _nameController,
                     widthController: _widthController,
                     heightController: _heightController,
@@ -90,12 +98,20 @@ class _ExportPresetBuilderPanelState
                     frameRate: _frameRate,
                     format: _format,
                     platform: _platform,
+                    filenamePattern: _filenamePattern,
                     removeWatermark: _removeWatermark,
+                    sizePreviewLabel: _estimateSizeLabel(snapshot.data?.durationMicros),
+                    watermarkLabel: _watermarkLabel(),
+                    draftFileName: _buildOutputFileName(draftPreset, projectName, pattern: _filenamePattern),
                     onFrameRateChanged: (value) => setState(() => _frameRate = value),
                     onFormatChanged: (value) => setState(() => _format = value),
                     onPlatformChanged: (value) => setState(() => _platform = value),
+                    onFilenamePatternChanged: (value) => setState(() => _filenamePattern = value),
                     onWatermarkChanged: (value) => setState(() => _removeWatermark = value),
                     onSave: _savePreset,
+                    onClearEdit: _clearEditMode,
+                    onExportJson: _exportCustomPresetsJson,
+                    onImportJson: _showImportPresetDialog,
                   ),
                   const SizedBox(height: 20),
                   const _SectionTitle('Built-in Platform Presets'),
@@ -107,6 +123,7 @@ class _ExportPresetBuilderPanelState
                       isExporting: _exportingPresetId == preset.id,
                       onUse: () => _startExportWithPreset(preset),
                       onClone: () => _clonePreset(preset),
+                      onTest: () => _startTestExportFoundation(preset),
                     ),
                   ),
                   const SizedBox(height: 20),
@@ -121,7 +138,10 @@ class _ExportPresetBuilderPanelState
                         previewFileName: _buildOutputFileName(preset, projectName),
                         isExporting: _exportingPresetId == preset.id,
                         onUse: () => _startExportWithPreset(preset),
-                        onRemove: () => _removePreset(preset.id),
+                        onEdit: () => _loadPresetForEdit(preset),
+                        onClone: () => _clonePreset(preset),
+                        onTest: () => _startTestExportFoundation(preset),
+                        onRemove: () => _confirmRemovePreset(preset),
                       ),
                     ),
                 ],
@@ -130,6 +150,25 @@ class _ExportPresetBuilderPanelState
           );
         },
       ),
+    );
+  }
+
+  NleExportPresetSpec _draftPreset() {
+    final now = DateTime.now();
+    return NleExportPresetSpec(
+      id: _editingPresetId ?? 'draft',
+      name: _nameController.text.trim().isEmpty ? 'Draft Preset' : _nameController.text.trim(),
+      description: 'Draft export preset.',
+      platform: _platform,
+      width: int.tryParse(_widthController.text.trim()) ?? 1080,
+      height: int.tryParse(_heightController.text.trim()) ?? 1920,
+      frameRate: _frameRate,
+      bitrateMbps: int.tryParse(_bitrateController.text.trim()) ?? 12,
+      format: _format,
+      removeWatermark: _removeWatermark,
+      isBuiltIn: false,
+      createdAt: _editingCreatedAt ?? now,
+      updatedAt: now,
     );
   }
 
@@ -152,7 +191,7 @@ class _ExportPresetBuilderPanelState
     setState(() => _saving = true);
     final now = DateTime.now();
     final preset = NleExportPresetSpec(
-      id: 'custom_${_uuid.v4()}',
+      id: _editingPresetId ?? 'custom_${_uuid.v4()}',
       name: name,
       description: 'Custom $_platform export preset.',
       platform: _platform,
@@ -163,7 +202,7 @@ class _ExportPresetBuilderPanelState
       format: _format,
       removeWatermark: _removeWatermark,
       isBuiltIn: false,
-      createdAt: now,
+      createdAt: _editingCreatedAt ?? now,
       updatedAt: now,
     );
 
@@ -175,9 +214,10 @@ class _ExportPresetBuilderPanelState
       ref.invalidate(projectExportPresetsProvider(widget.projectId));
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Export preset saved.')),
+          SnackBar(content: Text(_editingPresetId == null ? 'Export preset saved.' : 'Export preset updated.')),
         );
       }
+      _clearEditMode();
     } finally {
       if (mounted) setState(() => _saving = false);
     }
@@ -204,6 +244,8 @@ class _ExportPresetBuilderPanelState
       _format = source.format;
       _platform = source.platform;
       _removeWatermark = source.removeWatermark;
+      _editingPresetId = clone.id;
+      _editingCreatedAt = clone.createdAt;
     });
 
     await ref.read(exportPresetStoreServiceProvider).saveCustomPreset(
@@ -217,6 +259,156 @@ class _ExportPresetBuilderPanelState
         SnackBar(content: Text('Cloned ${source.name} into custom presets.')),
       );
     }
+  }
+
+  void _loadPresetForEdit(NleExportPresetSpec preset) {
+    setState(() {
+      _editingPresetId = preset.id;
+      _editingCreatedAt = preset.createdAt;
+      _nameController.text = preset.name;
+      _widthController.text = preset.width.toString();
+      _heightController.text = preset.height.toString();
+      _bitrateController.text = preset.bitrateMbps.toString();
+      _frameRate = preset.frameRate;
+      _format = preset.format;
+      _platform = preset.platform;
+      _removeWatermark = preset.removeWatermark;
+    });
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text('Editing ${preset.name}.')),
+    );
+  }
+
+  void _clearEditMode() {
+    if (!mounted) return;
+    setState(() {
+      _editingPresetId = null;
+      _editingCreatedAt = null;
+      _nameController.text = 'My Export Preset';
+      _widthController.text = '1080';
+      _heightController.text = '1920';
+      _bitrateController.text = '12';
+      _frameRate = 30;
+      _format = 'mp4';
+      _platform = 'Custom';
+      _filenamePattern = ExportFilenamePatterns.defaultPattern;
+      _removeWatermark = false;
+    });
+  }
+
+  Future<void> _confirmRemovePreset(NleExportPresetSpec preset) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        backgroundColor: AppTheme.surfaceDark,
+        title: const Text('Delete Custom Preset?'),
+        content: Text('Delete "${preset.name}" from your custom export presets?'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('Cancel'),
+          ),
+          ElevatedButton(
+            onPressed: () => Navigator.pop(context, true),
+            child: const Text('Delete'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed == true) await _removePreset(preset.id);
+  }
+
+  Future<void> _exportCustomPresetsJson() async {
+    final custom = await ref.read(exportPresetStoreServiceProvider).loadCustomPresets(widget.projectId);
+    final text = const JsonEncoder.withIndent('  ').convert(custom.map((item) => item.toJson()).toList());
+    await Clipboard.setData(ClipboardData(text: text));
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Custom presets JSON copied.')),
+      );
+    }
+  }
+
+  Future<void> _showImportPresetDialog() async {
+    final controller = TextEditingController();
+    final text = await showDialog<String>(
+      context: context,
+      builder: (context) => AlertDialog(
+        backgroundColor: AppTheme.surfaceDark,
+        title: const Text('Import Preset JSON'),
+        content: TextField(
+          controller: controller,
+          maxLines: 8,
+          decoration: const InputDecoration(
+            hintText: 'Paste preset JSON array here',
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Cancel'),
+          ),
+          ElevatedButton(
+            onPressed: () => Navigator.pop(context, controller.text),
+            child: const Text('Import'),
+          ),
+        ],
+      ),
+    );
+    controller.dispose();
+    if (text == null || text.trim().isEmpty) return;
+
+    try {
+      final decoded = jsonDecode(text);
+      final items = decoded is List ? decoded : [decoded];
+      var count = 0;
+      for (final item in items) {
+        if (item is Map) {
+          final mapped = item.map((key, value) => MapEntry(key.toString(), value));
+          final preset = NleExportPresetSpec.fromJson(mapped).copyWith(isBuiltIn: false);
+          await ref.read(exportPresetStoreServiceProvider).saveCustomPreset(
+                projectId: widget.projectId,
+                preset: preset,
+              );
+          count++;
+        }
+      }
+      ref.invalidate(projectExportPresetsProvider(widget.projectId));
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Imported $count preset(s).')),
+        );
+      }
+    } catch (error) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Import failed: $error'), backgroundColor: AppTheme.error),
+        );
+      }
+    }
+  }
+
+  void _startTestExportFoundation(NleExportPresetSpec preset) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text('5-second test export ready for ${preset.name}. Native trim hook can connect here.')),
+    );
+  }
+
+  String _estimateSizeLabel(int? durationMicros) {
+    final bitrate = int.tryParse(_bitrateController.text.trim()) ?? 0;
+    if (durationMicros == null || durationMicros <= 0 || bitrate <= 0) return 'Size estimate unavailable';
+    final seconds = durationMicros / 1000000.0;
+    final bytes = seconds * bitrate * 1000000 / 8 * 1.18;
+    const gb = 1024 * 1024 * 1024;
+    const mb = 1024 * 1024;
+    if (bytes >= gb) return 'Estimated output: ${(bytes / gb).toStringAsFixed(1)} GB';
+    return 'Estimated output: ${(bytes / mb).ceil()} MB';
+  }
+
+  String _watermarkLabel() {
+    return _removeWatermark
+        ? 'Watermark-free export requested. Premium rules apply.'
+        : 'Watermark will remain for free exports.';
   }
 
   Future<void> _startExportWithPreset(NleExportPresetSpec preset) async {
@@ -264,7 +456,7 @@ class _ExportPresetBuilderPanelState
     }
 
     final projectName = project?.name ?? 'Project';
-    final previewFileName = _buildOutputFileName(preset, projectName);
+    final previewFileName = _buildOutputFileName(preset, projectName, pattern: _filenamePattern);
     final folders = await ref.read(projectStorageServiceProvider).getProjectFolders(widget.projectId);
     final finalOutputPath = await const ExportFilenameVersioner().uniquePath(
       directoryPath: folders.exports,
@@ -283,7 +475,7 @@ class _ExportPresetBuilderPanelState
     final settings = {
       ...preset.exportSettings,
       'presetName': preset.name,
-      'filenamePattern': ExportFilenamePatterns.defaultPattern,
+      'filenamePattern': _filenamePattern,
       'outputFileName': finalOutputFileName,
     };
 
@@ -312,9 +504,13 @@ class _ExportPresetBuilderPanelState
     }
   }
 
-  String _buildOutputFileName(NleExportPresetSpec preset, String projectName) {
+  String _buildOutputFileName(
+    NleExportPresetSpec preset,
+    String projectName, {
+    String pattern = ExportFilenamePatterns.defaultPattern,
+  }) {
     return const ExportFilenameBuilder().build(
-      pattern: ExportFilenamePatterns.defaultPattern,
+      pattern: pattern,
       projectName: projectName,
       presetName: preset.name,
       platform: preset.platform,
@@ -452,6 +648,7 @@ class _PresetHeader extends StatelessWidget {
 
 class _BuilderCard extends StatelessWidget {
   final bool saving;
+  final bool editing;
   final TextEditingController nameController;
   final TextEditingController widthController;
   final TextEditingController heightController;
@@ -459,15 +656,24 @@ class _BuilderCard extends StatelessWidget {
   final int frameRate;
   final String format;
   final String platform;
+  final String filenamePattern;
   final bool removeWatermark;
+  final String sizePreviewLabel;
+  final String watermarkLabel;
+  final String draftFileName;
   final ValueChanged<int> onFrameRateChanged;
   final ValueChanged<String> onFormatChanged;
   final ValueChanged<String> onPlatformChanged;
+  final ValueChanged<String> onFilenamePatternChanged;
   final ValueChanged<bool> onWatermarkChanged;
   final VoidCallback onSave;
+  final VoidCallback onClearEdit;
+  final VoidCallback onExportJson;
+  final VoidCallback onImportJson;
 
   const _BuilderCard({
     required this.saving,
+    required this.editing,
     required this.nameController,
     required this.widthController,
     required this.heightController,
@@ -475,12 +681,20 @@ class _BuilderCard extends StatelessWidget {
     required this.frameRate,
     required this.format,
     required this.platform,
+    required this.filenamePattern,
     required this.removeWatermark,
+    required this.sizePreviewLabel,
+    required this.watermarkLabel,
+    required this.draftFileName,
     required this.onFrameRateChanged,
     required this.onFormatChanged,
     required this.onPlatformChanged,
+    required this.onFilenamePatternChanged,
     required this.onWatermarkChanged,
     required this.onSave,
+    required this.onClearEdit,
+    required this.onExportJson,
+    required this.onImportJson,
   });
 
   @override
@@ -494,6 +708,22 @@ class _BuilderCard extends StatelessWidget {
       ),
       child: Column(
         children: [
+          if (editing) ...[
+            Row(
+              children: [
+                const Icon(Icons.edit_rounded, color: AppTheme.warning, size: 18),
+                const SizedBox(width: 8),
+                const Expanded(
+                  child: Text(
+                    'Editing custom preset',
+                    style: TextStyle(color: AppTheme.warning, fontSize: 12),
+                  ),
+                ),
+                TextButton(onPressed: onClearEdit, child: const Text('New')),
+              ],
+            ),
+            const SizedBox(height: 8),
+          ],
           TextField(
             controller: nameController,
             decoration: const InputDecoration(labelText: 'Preset name'),
@@ -553,7 +783,7 @@ class _BuilderCard extends StatelessWidget {
                 child: DropdownButtonFormField<String>(
                   value: platform,
                   decoration: const InputDecoration(labelText: 'Platform'),
-                  items: const ['Custom', 'TikTok', 'Instagram', 'YouTube', 'Cinema']
+                  items: const ['Custom', 'TikTok', 'Instagram', 'YouTube', 'Cinema', 'Short-form']
                       .map((value) => DropdownMenuItem(
                             value: value,
                             child: Text(value),
@@ -582,7 +812,26 @@ class _BuilderCard extends StatelessWidget {
               ),
             ],
           ),
+          const SizedBox(height: 10),
+          DropdownButtonFormField<String>(
+            value: filenamePattern,
+            decoration: const InputDecoration(labelText: 'Filename pattern'),
+            items: const [
+              ExportFilenamePatterns.defaultPattern,
+              ExportFilenamePatterns.projectDate,
+              ExportFilenamePatterns.projectPresetVersion,
+              ExportFilenamePatterns.platformReady,
+            ]
+                .map((value) => DropdownMenuItem(value: value, child: Text(value)))
+                .toList(),
+            onChanged: (value) {
+              if (value != null) onFilenamePatternChanged(value);
+            },
+          ),
           const SizedBox(height: 8),
+          _InfoLine(icon: Icons.insert_drive_file_rounded, text: draftFileName),
+          _InfoLine(icon: Icons.sd_storage_rounded, text: sizePreviewLabel),
+          _InfoLine(icon: Icons.branding_watermark_rounded, text: watermarkLabel),
           SwitchListTile.adaptive(
             contentPadding: EdgeInsets.zero,
             value: removeWatermark,
@@ -595,8 +844,56 @@ class _BuilderCard extends StatelessWidget {
             width: double.infinity,
             child: ElevatedButton.icon(
               onPressed: saving ? null : onSave,
-              icon: const Icon(Icons.save_rounded),
-              label: Text(saving ? 'Saving...' : 'Save Custom Preset'),
+              icon: Icon(editing ? Icons.update_rounded : Icons.save_rounded),
+              label: Text(saving ? 'Saving...' : editing ? 'Update Custom Preset' : 'Save Custom Preset'),
+            ),
+          ),
+          const SizedBox(height: 8),
+          Row(
+            children: [
+              Expanded(
+                child: OutlinedButton.icon(
+                  onPressed: onExportJson,
+                  icon: const Icon(Icons.upload_file_rounded),
+                  label: const Text('Export JSON'),
+                ),
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: OutlinedButton.icon(
+                  onPressed: onImportJson,
+                  icon: const Icon(Icons.download_rounded),
+                  label: const Text('Import JSON'),
+                ),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _InfoLine extends StatelessWidget {
+  final IconData icon;
+  final String text;
+
+  const _InfoLine({required this.icon, required this.text});
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.only(top: 8),
+      child: Row(
+        children: [
+          Icon(icon, color: AppTheme.textMuted, size: 16),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Text(
+              text,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: const TextStyle(color: AppTheme.textSecondary, fontSize: 11),
             ),
           ),
         ],
@@ -662,7 +959,9 @@ class _PresetCard extends StatelessWidget {
   final String previewFileName;
   final bool isExporting;
   final VoidCallback onUse;
+  final VoidCallback? onEdit;
   final VoidCallback? onClone;
+  final VoidCallback? onTest;
   final VoidCallback? onRemove;
 
   const _PresetCard({
@@ -670,12 +969,15 @@ class _PresetCard extends StatelessWidget {
     required this.previewFileName,
     required this.isExporting,
     required this.onUse,
+    this.onEdit,
     this.onClone,
+    this.onTest,
     this.onRemove,
   });
 
   @override
   Widget build(BuildContext context) {
+    final isCustom = onEdit != null;
     return Container(
       margin: const EdgeInsets.only(bottom: 10),
       padding: const EdgeInsets.all(14),
@@ -720,7 +1022,7 @@ class _PresetCard extends StatelessWidget {
               ),
               if (onRemove != null)
                 IconButton(
-                  tooltip: 'Remove preset',
+                  tooltip: 'Delete preset',
                   onPressed: onRemove,
                   icon: const Icon(Icons.close_rounded, color: AppTheme.error),
                 ),
@@ -736,11 +1038,7 @@ class _PresetCard extends StatelessWidget {
             ),
             child: Row(
               children: [
-                const Icon(
-                  Icons.insert_drive_file_rounded,
-                  color: AppTheme.textMuted,
-                  size: 16,
-                ),
+                const Icon(Icons.insert_drive_file_rounded, color: AppTheme.textMuted, size: 16),
                 const SizedBox(width: 8),
                 Expanded(
                   child: Text(
@@ -758,35 +1056,35 @@ class _PresetCard extends StatelessWidget {
             ),
           ),
           const SizedBox(height: 12),
-          if (onClone == null)
-            SizedBox(
-              width: double.infinity,
-              child: ElevatedButton.icon(
+          Wrap(
+            spacing: 8,
+            runSpacing: 6,
+            children: [
+              if (isCustom)
+                OutlinedButton.icon(
+                  onPressed: onEdit,
+                  icon: const Icon(Icons.edit_rounded),
+                  label: const Text('Edit'),
+                ),
+              if (onClone != null)
+                OutlinedButton.icon(
+                  onPressed: onClone,
+                  icon: const Icon(Icons.copy_all_rounded),
+                  label: Text(isCustom ? 'Duplicate' : 'Clone'),
+                ),
+              if (onTest != null)
+                OutlinedButton.icon(
+                  onPressed: onTest,
+                  icon: const Icon(Icons.timer_rounded),
+                  label: const Text('Test 5s'),
+                ),
+              ElevatedButton.icon(
                 onPressed: isExporting ? null : onUse,
                 icon: const Icon(Icons.rocket_launch_rounded),
-                label: Text(isExporting ? 'Starting export...' : 'Start Export'),
+                label: Text(isExporting ? 'Starting...' : 'Export'),
               ),
-            )
-          else
-            Row(
-              children: [
-                Expanded(
-                  child: OutlinedButton.icon(
-                    onPressed: onClone,
-                    icon: const Icon(Icons.copy_all_rounded),
-                    label: const Text('Clone'),
-                  ),
-                ),
-                const SizedBox(width: 10),
-                Expanded(
-                  child: ElevatedButton.icon(
-                    onPressed: isExporting ? null : onUse,
-                    icon: const Icon(Icons.rocket_launch_rounded),
-                    label: Text(isExporting ? 'Starting...' : 'Export'),
-                  ),
-                ),
-              ],
-            ),
+            ],
+          ),
         ],
       ),
     );
@@ -806,7 +1104,7 @@ class _EmptyCustomPresets extends StatelessWidget {
         border: Border.all(color: AppTheme.borderSubtle),
       ),
       child: const Text(
-        'No custom presets yet. Save one above to reuse it later.',
+        'No custom presets yet. Clone a built-in preset or save one above.',
         style: TextStyle(color: AppTheme.textSecondary, fontSize: 12),
       ),
     );
