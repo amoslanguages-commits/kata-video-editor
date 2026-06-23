@@ -43,13 +43,16 @@ class NlePreviewManager(
             if (initialFrame.rendered) {
                 events.onPreviewFrameRendered(initialFrame.timelineTimeUs)
             } else {
+                val reason = initialFrame.reason ?: "Initial native preview frame did not render."
                 events.onPreviewDroppedFrame(
                     timelineTimeUs = initialFrame.timelineTimeUs,
-                    reason = initialFrame.reason ?: "Initial preview frame did not render.",
+                    reason = reason,
                 )
+                throw IllegalStateException(reason)
             }
         } catch (error: Throwable) {
             events.onPreviewError(error.message ?: error.toString())
+            throw error
         }
     }
 
@@ -66,6 +69,7 @@ class NlePreviewManager(
             }
         } catch (error: Throwable) {
             events.onPreviewError(error.message ?: error.toString())
+            throw error
         }
     }
 
