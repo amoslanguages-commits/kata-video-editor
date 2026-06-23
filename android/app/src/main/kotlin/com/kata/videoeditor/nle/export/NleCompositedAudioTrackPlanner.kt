@@ -3,6 +3,7 @@ package com.kata.videoeditor.nle.export
 import android.media.MediaExtractor
 import android.media.MediaFormat
 import com.nle.editor.rendergraph.NleRenderGraph
+import com.nle.editor.rendergraph.NleRenderAsset
 import com.nle.editor.rendergraph.NleRenderClip
 import com.nle.editor.rendergraph.NleRenderTrack
 
@@ -14,7 +15,7 @@ internal data class NlePlannedAudioTrack(
 )
 
 internal class NleCompositedAudioTrackPlanner {
-    fun plan(graph: NleRenderGraph): List<NlePlannedAudioTrack> {
+    fun plan(graph: NleRenderGraph, preferProxy: Boolean): List<NlePlannedAudioTrack> {
         val audioTracks = graph.tracks.filter { track ->
             !track.isMuted && !track.isHidden && (track.isAudio || track.type == "audio" || track.trackType == "audio")
         }
@@ -28,7 +29,7 @@ internal class NleCompositedAudioTrackPlanner {
                 val assetId = clip.assetId ?: continue
                 val asset = assetsById[assetId] ?: continue
                 if (!asset.hasAudio) continue
-                val sourcePath = asset.originalPath ?: asset.proxyPath ?: continue
+                val sourcePath = resolveAssetPath(asset, preferProxy) ?: continue
                 val audioTrack = firstAudioTrack(sourcePath) ?: continue
                 planned.add(
                     NlePlannedAudioTrack(
@@ -41,6 +42,14 @@ internal class NleCompositedAudioTrackPlanner {
             }
         }
         return planned
+    }
+
+    private fun resolveAssetPath(asset: NleRenderAsset, preferProxy: Boolean): String? {
+        return if (preferProxy) {
+            asset.proxyPath?.takeIf { it.isNotBlank() } ?: asset.originalPath?.takeIf { it.isNotBlank() }
+        } else {
+            asset.originalPath?.takeIf { it.isNotBlank() } ?: asset.proxyPath?.takeIf { it.isNotBlank() }
+        }
     }
 
     private fun orderedAudioTracks(tracks: List<NleRenderTrack>): List<NleRenderTrack> {
