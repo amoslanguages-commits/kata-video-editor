@@ -112,6 +112,12 @@ class MediaAssetRepository {
   }
 
   NleMediaAsset _assetFromRow(db.MediaAsset row) {
+    final fileInfo = _decodeMap(row.fileInfoJson);
+    final videoInfo = _decodeMap(row.videoInfoJson);
+    final audioInfo = _decodeMap(row.audioInfoJson);
+    final timecodeInfo = _decodeMap(row.timecodeInfoJson);
+    final tags = _decodeStringList(row.tagsJson);
+
     return NleMediaAsset(
       id: row.id,
       projectId: row.projectId,
@@ -151,22 +157,12 @@ class MediaAssetRepository {
         row.usageState,
         NleMediaUsageState.unused,
       ),
-      fileInfo: NleMediaFileInfo.fromJson(
-        Map<String, dynamic>.from(jsonDecode(row.fileInfoJson) as Map),
-      ),
-      videoInfo: NleMediaVideoInfo.fromJson(
-        Map<String, dynamic>.from(jsonDecode(row.videoInfoJson) as Map),
-      ),
-      audioInfo: NleMediaAudioInfo.fromJson(
-        Map<String, dynamic>.from(jsonDecode(row.audioInfoJson) as Map),
-      ),
-      timecodeInfo: NleMediaTimecodeInfo.fromJson(
-        Map<String, dynamic>.from(jsonDecode(row.timecodeInfoJson) as Map),
-      ),
+      fileInfo: NleMediaFileInfo.fromJson(fileInfo),
+      videoInfo: NleMediaVideoInfo.fromJson(videoInfo),
+      audioInfo: NleMediaAudioInfo.fromJson(audioInfo),
+      timecodeInfo: NleMediaTimecodeInfo.fromJson(timecodeInfo),
       notes: row.notes,
-      tags: (jsonDecode(row.tagsJson) as List)
-          .map((item) => item.toString())
-          .toList(),
+      tags: tags,
       importedAt: row.importedAt,
       updatedAt: row.updatedAt,
       version: row.version,
@@ -186,6 +182,28 @@ class MediaAssetRepository {
       updatedAt: row.updatedAt,
       version: row.version,
     );
+  }
+
+  Map<String, dynamic> _decodeMap(String raw) {
+    try {
+      final decoded = jsonDecode(raw);
+      if (decoded is Map) {
+        return Map<String, dynamic>.from(decoded);
+      }
+    } catch (_) {}
+
+    return <String, dynamic>{};
+  }
+
+  List<String> _decodeStringList(String raw) {
+    try {
+      final decoded = jsonDecode(raw);
+      if (decoded is List) {
+        return decoded.map((item) => item.toString()).toList();
+      }
+    } catch (_) {}
+
+    return const <String>[];
   }
 
   T _enumByName<T extends Enum>(
