@@ -41,10 +41,10 @@ class DualPreviewArea extends ConsumerWidget {
     ref.listen(
       editorStateProvider.select((s) => s.currentTimeMicros),
       (previous, next) {
-        if (previous != next && !ref.read(editorStateProvider).isPlaying) {
-          ref
-              .read(realNativePreviewProvider(projectId).notifier)
-              .requestFrame(next);
+        final editorState = ref.read(editorStateProvider);
+        final previewState = ref.read(realNativePreviewProvider(projectId));
+        if (previous != next && !editorState.isPlaying && previewState.hasSurface) {
+          ref.read(realNativePreviewProvider(projectId).notifier).requestFrame(next);
         }
       },
     );
@@ -53,8 +53,10 @@ class DualPreviewArea extends ConsumerWidget {
       editorStateProvider.select((s) => s.isPlaying),
       (previous, next) {
         if (previous != next) {
-          final controller =
-              ref.read(realNativePreviewProvider(projectId).notifier);
+          final previewState = ref.read(realNativePreviewProvider(projectId));
+          if (!previewState.hasSurface) return;
+
+          final controller = ref.read(realNativePreviewProvider(projectId).notifier);
           if (next) {
             controller.play();
           } else {
