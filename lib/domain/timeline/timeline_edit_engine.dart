@@ -37,10 +37,10 @@ class TimelineEditEngine {
     final nextEnd = nextStart + duration;
 
     _assertMinDuration(nextStart, nextEnd, options.minClipDurationMicros);
+    await _assertTrackUnlocked(clip.trackId);
     await _assertTrackUnlocked(targetTrackId);
     if (!options.allowOverlap) {
       await _assertNoOverlap(
-        projectId: clip.projectId,
         trackId: targetTrackId,
         movingClipId: clip.id,
         startMicros: nextStart,
@@ -74,6 +74,7 @@ class TimelineEditEngine {
     TimelineEditOptions options = const TimelineEditOptions(),
   }) async {
     final clip = await _requiredClip(clipId);
+    await _assertTrackUnlocked(clip.trackId);
     final before = [TimelineClipSnapshot.fromClip(clip)];
     final nextStart = newStartMicros.clamp(0, clip.timelineEndMicros).toInt();
     _assertMinDuration(nextStart, clip.timelineEndMicros, options.minClipDurationMicros);
@@ -106,6 +107,7 @@ class TimelineEditEngine {
     TimelineEditOptions options = const TimelineEditOptions(),
   }) async {
     final clip = await _requiredClip(clipId);
+    await _assertTrackUnlocked(clip.trackId);
     final before = [TimelineClipSnapshot.fromClip(clip)];
     final nextEnd = newEndMicros.clamp(clip.timelineStartMicros, 1 << 62).toInt();
     _assertMinDuration(clip.timelineStartMicros, nextEnd, options.minClipDurationMicros);
@@ -138,6 +140,7 @@ class TimelineEditEngine {
     TimelineEditOptions options = const TimelineEditOptions(),
   }) async {
     final clip = await _requiredClip(clipId);
+    await _assertTrackUnlocked(clip.trackId);
     if (splitMicros <= clip.timelineStartMicros || splitMicros >= clip.timelineEndMicros) {
       throw const TimelineEditException('split_out_of_range', 'Split point must be inside the clip.');
     }
@@ -223,6 +226,7 @@ class TimelineEditEngine {
     TimelineEditOptions options = const TimelineEditOptions(ripple: true),
   }) async {
     final clip = await _requiredClip(clipId);
+    await _assertTrackUnlocked(clip.trackId);
     final trackClips = await repository.getTrackClips(clip.trackId);
     final affected = trackClips
         .where((item) => item.id == clip.id || item.timelineStartMicros >= clip.timelineEndMicros)
@@ -269,14 +273,13 @@ class TimelineEditEngine {
   }
 
   Future<void> _assertTrackUnlocked(String trackId) async {
-    final clips = await repository.getTrackClips(trackId);
-    if (clips.isEmpty) return;
-    // Track lock state is validated in UI track controllers. This guard keeps the engine path ready for
-    // repository-level track lookup without blocking empty newly-created tracks.
+    final track = await repository.getTrack(trackId);
+    if (track.isLocked) {
+      throw TimelineEditException('track_locked', 'Track ${track.name} is locked.');
+    }
   }
 
   Future<void> _assertNoOverlap({
-    required String projectId,
     required String trackId,
     required String movingClipId,
     required int startMicros,
