@@ -39,9 +39,15 @@ class NativeEventTypes {
 
   static const String exportStarted   = 'export_started';
   static const String exportProgress  = 'export_progress';
+  static const String exportPaused    = 'export_paused';
+  static const String exportResumed   = 'export_resumed';
   static const String exportCompleted = 'export_completed';
   static const String exportFailed    = 'export_failed';
   static const String exportCancelled = 'export_cancelled';
+  static const String exportValidation = 'export_validation';
+  static const String exportPermissionStatus = 'export_permission_status';
+  static const String exportRecovery = 'export_recovery';
+  static const String exportNotificationScheduled = 'export_notification_scheduled';
 
   static const String missingFile = 'missing_file';
   static const String decoderError = 'decoder_error';
