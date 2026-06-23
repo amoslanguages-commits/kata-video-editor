@@ -38,7 +38,10 @@ class TruePreviewControls extends ConsumerWidget {
           PremiumBounceButton(
             onTap: ready
                 ? () async {
-                    final target = (editorState.currentTimeMicros - 5000000).clamp(0, durationMicros);
+                    final target = _clampMicros(
+                      editorState.currentTimeMicros - 5000000,
+                      durationMicros,
+                    );
                     editorNotifier.seekTo(target);
                     await controller.requestFrame(target);
                   }
@@ -79,7 +82,10 @@ class TruePreviewControls extends ConsumerWidget {
           PremiumBounceButton(
             onTap: ready
                 ? () async {
-                    final target = (editorState.currentTimeMicros + 5000000).clamp(0, durationMicros);
+                    final target = _clampMicros(
+                      editorState.currentTimeMicros + 5000000,
+                      durationMicros,
+                    );
                     editorNotifier.seekTo(target);
                     await controller.requestFrame(target);
                   }
@@ -92,5 +98,9 @@ class TruePreviewControls extends ConsumerWidget {
         ],
       ),
     );
+  }
+
+  int _clampMicros(int value, int durationMicros) {
+    return value.clamp(0, durationMicros).toInt();
   }
 }
