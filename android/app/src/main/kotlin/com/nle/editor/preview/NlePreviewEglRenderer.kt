@@ -4,6 +4,7 @@ import android.opengl.EGL14
 import android.opengl.EGLConfig
 import android.opengl.EGLContext
 import android.opengl.EGLDisplay
+import android.opengl.EGLExt
 import android.opengl.EGLSurface
 import android.view.Surface
 
@@ -72,6 +73,11 @@ class NlePreviewEglRenderer {
             surface,
             context,
         )
+    }
+
+    fun setPresentationTimeNanos(timestampNanos: Long) {
+        if (display == EGL14.EGL_NO_DISPLAY || surface == EGL14.EGL_NO_SURFACE) return
+        EGLExt.eglPresentationTimeANDROID(display, surface, timestampNanos)
     }
 
     fun swapBuffers() {
