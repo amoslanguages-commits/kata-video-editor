@@ -24,7 +24,7 @@ class NleEditorPlugin(
 
     private val engineManager by lazy {
         NleEngineManager(
-            context = context,
+            appContext = context,
             eventEmitter = eventEmitter,
             textureRegistry = textureRegistry
         )
