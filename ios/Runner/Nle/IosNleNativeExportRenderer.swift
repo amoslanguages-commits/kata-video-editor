@@ -30,7 +30,8 @@ final class IosNleNativeExportRenderer {
         let composition = AVMutableComposition()
         let asset = AVAsset(url: job.assetUrl)
         let sourceStart = CMTime(value: job.sourceStartMicros, timescale: 1_000_000)
-        let sourceDuration = CMTime(value: max(1, job.sourceEndMicros - job.sourceStartMicros), timescale: 1_000_000)
+        let durationMicros = max(Int64(1), job.sourceEndMicros - job.sourceStartMicros)
+        let sourceDuration = CMTime(value: durationMicros, timescale: 1_000_000)
         let sourceRange = CMTimeRange(start: sourceStart, duration: sourceDuration)
 
         guard let sourceVideoTrack = asset.tracks(withMediaType: .video).first else {
@@ -56,9 +57,10 @@ final class IosNleNativeExportRenderer {
         }
 
         let outputUrl = URL(fileURLWithPath: outputPath)
-        try? FileManager.default.createDirectory(
+        try FileManager.default.createDirectory(
             at: outputUrl.deletingLastPathComponent(),
-            withIntermediateDirectories: true
+            withIntermediateDirectories: true,
+            attributes: nil
         )
         if FileManager.default.fileExists(atPath: outputPath) {
             try FileManager.default.removeItem(at: outputUrl)
@@ -90,7 +92,13 @@ final class IosNleNativeExportRenderer {
             guard let session else { return }
             switch session.status {
             case .completed:
-                let size = (try? FileManager.default.attributesOfItem(atPath: outputPath)[.size] as? NSNumber)?.int64Value ?? 0
+                let size: Int64
+                if let attrs = try? FileManager.default.attributesOfItem(atPath: outputPath),
+                   let number = attrs[.size] as? NSNumber {
+                    size = number.int64Value
+                } else {
+                    size = 0
+                }
                 self.emit(jobId: jobId, projectId: projectId, type: IosNleEventType.exportCompleted, payload: [
                     "stage": "Complete",
                     "progress": NSNumber(value: 100),
