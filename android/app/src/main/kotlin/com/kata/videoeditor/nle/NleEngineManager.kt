@@ -2,7 +2,6 @@ package com.kata.videoeditor.nle
 
 import android.content.Context
 import com.nle.editor.preview.NleFlutterPreviewTextureManager
-import com.nle.editor.preview.NlePreviewBridgeEventSink
 import com.nle.editor.preview.NlePreviewConfig
 import com.nle.editor.preview.NlePreviewEventSink
 import com.nle.editor.preview.NlePreviewManager
