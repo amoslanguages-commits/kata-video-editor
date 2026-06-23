@@ -4,41 +4,30 @@ on:
   push:
     branches:
       - master
-      - fix/media-assets-unification
-      - feature/project-media-management
   pull_request:
     branches:
       - master
   workflow_dispatch:
 
-permissions:
-  contents: read
-  checks: write
-
 jobs:
   analyze:
-    name: Flutter analyze
     runs-on: ubuntu-latest
     timeout-minutes: 30
 
     steps:
-      - name: Checkout repository
+      - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Set up Flutter
+      - name: Setup Flutter
         uses: subosito/flutter-action@v2
         with:
           channel: stable
-          cache: true
 
-      - name: Flutter version
-        run: flutter --version
-
-      - name: Install dependencies
+      - name: Get dependencies
         run: flutter pub get
 
-      - name: Generate Dart files
+      - name: Run build_runner
         run: dart run build_runner build --delete-conflicting-outputs
 
-      - name: Analyze Dart and Flutter code
+      - name: Run Flutter analyze
         run: flutter analyze
