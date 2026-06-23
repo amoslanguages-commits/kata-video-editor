@@ -241,8 +241,9 @@ class _ExportJobTile extends ConsumerWidget {
     final color = _statusColor(job.status);
     final progress = job.progress.clamp(0, 100) / 100.0;
     final outputPath = job.outputPath ?? settings['outputPath']?.toString();
-    final hasOutput = outputPath != null && outputPath.isNotEmpty;
-    final outputExists = hasOutput && File(outputPath).existsSync();
+    final outputPathValue = outputPath ?? '';
+    final hasOutput = outputPathValue.isNotEmpty;
+    final outputExists = hasOutput && File(outputPathValue).existsSync();
 
     return Container(
       padding: const EdgeInsets.all(14),
@@ -288,7 +289,7 @@ class _ExportJobTile extends ConsumerWidget {
           if (hasOutput) ...[
             const SizedBox(height: 8),
             Text(
-              outputPath,
+              outputPathValue,
               maxLines: 1,
               overflow: TextOverflow.ellipsis,
               style: const TextStyle(color: AppTheme.textSecondary, fontSize: 11),
@@ -347,25 +348,25 @@ class _ExportJobTile extends ConsumerWidget {
                 ),
               if (hasOutput)
                 TextButton.icon(
-                  onPressed: () => _copyOutputPath(context, outputPath),
+                  onPressed: () => _copyOutputPath(context, outputPathValue),
                   icon: const Icon(Icons.copy_rounded, size: 16),
                   label: const Text('Copy Path'),
                 ),
               if (outputExists && viewModel.isCompleted)
                 TextButton.icon(
-                  onPressed: () => _openExportFile(context, ref, outputPath),
+                  onPressed: () => _openExportFile(context, ref, outputPathValue),
                   icon: const Icon(Icons.open_in_new_rounded, size: 16),
                   label: const Text('Open'),
                 ),
               if (outputExists && viewModel.isCompleted)
                 TextButton.icon(
-                  onPressed: () => _openExportFolder(context, ref, outputPath),
+                  onPressed: () => _openExportFolder(context, ref, outputPathValue),
                   icon: const Icon(Icons.folder_open_rounded, size: 16),
                   label: const Text('Folder'),
                 ),
               if (outputExists && viewModel.isCompleted)
                 TextButton.icon(
-                  onPressed: () => _shareOutput(context, outputPath),
+                  onPressed: () => _shareOutput(context, outputPathValue),
                   icon: const Icon(Icons.share_rounded, size: 16),
                   label: const Text('Share'),
                 ),
