@@ -98,7 +98,7 @@ class RealNativePreviewController extends StateNotifier<NativePreviewSessionStat
     final monitorId = event.payload['monitorId']?.toString();
     if (monitorId != null && monitorId != state.monitorId) return;
 
-    if (event.type == 'preview_texture_ready') {
+    if (event.type == NativeEventTypes.previewTextureReady) {
       state = state.copyWith(
         phase: NativePreviewSessionPhase.ready,
         surfaceId: _int(event.payload['textureId']),
@@ -109,7 +109,7 @@ class RealNativePreviewController extends StateNotifier<NativePreviewSessionStat
       return;
     }
 
-    if (event.type == 'preview_frame_rendered') {
+    if (event.type == NativeEventTypes.previewFrameRendered) {
       state = state.copyWith(
         phase: state.phase == NativePreviewSessionPhase.playing
             ? NativePreviewSessionPhase.playing
@@ -120,8 +120,16 @@ class RealNativePreviewController extends StateNotifier<NativePreviewSessionStat
       return;
     }
 
-    if (event.type == 'preview_error') {
+    if (event.type == NativeEventTypes.previewError) {
       _error(event.payload['message']?.toString() ?? 'Native preview error.');
+      return;
+    }
+
+    if (event.type == NativeEventTypes.previewEnded) {
+      state = state.copyWith(
+        phase: NativePreviewSessionPhase.stopped,
+        clearError: true,
+      );
     }
   }
 
