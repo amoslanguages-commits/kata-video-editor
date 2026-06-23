@@ -11,6 +11,7 @@ import 'package:nle_editor/data/database/app_database.dart';
 import 'package:nle_editor/domain/export/export_pipeline_models.dart';
 import 'package:nle_editor/presentation/providers/editor_providers.dart';
 import 'package:nle_editor/presentation/providers/export_pipeline_providers.dart';
+import 'package:nle_editor/presentation/widgets/export/export_completion_summary_sheet.dart';
 
 class ExportPipelinePanel extends ConsumerWidget {
   final String projectId;
@@ -248,6 +249,15 @@ class _ExportJobTile extends ConsumerWidget {
                 icon: const Icon(Icons.info_outline_rounded, size: 16),
                 label: const Text('Details'),
               ),
+              if (viewModel.isCompleted)
+                TextButton.icon(
+                  onPressed: () => showExportCompletionSummary(
+                    context: context,
+                    viewModel: viewModel,
+                  ),
+                  icon: const Icon(Icons.fact_check_rounded, size: 16),
+                  label: const Text('Summary'),
+                ),
               if (hasOutput)
                 TextButton.icon(
                   onPressed: () => _copyOutputPath(context, outputPath),
