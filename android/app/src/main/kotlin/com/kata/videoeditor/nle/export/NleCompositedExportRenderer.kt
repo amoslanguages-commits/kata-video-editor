@@ -29,13 +29,11 @@ class NleCompositedExportRenderer(
             ?: profileMap.exportInt("targetWidth")
             ?: profileMap.exportInt("outputWidth")
             ?: graph.project.width
-            ?: 1920
         val height = profileMap.exportInt("height")
             ?: profileMap.exportInt("resolution")
             ?: profileMap.exportInt("targetHeight")
             ?: graph.project.height
-            ?: 1080
-        val frameRate = (profileMap.exportInt("frameRate") ?: graph.project.frameRate ?: 30).coerceAtLeast(1)
+        val frameRate = (profileMap.exportInt("frameRate") ?: graph.project.frameRate.toInt()).coerceAtLeast(1)
         val bitRate = profileMap.exportInt("bitRate")
             ?: profileMap.exportInt("videoBitrate")
             ?: profileMap.exportInt("videoBitrateBps")
@@ -127,10 +125,7 @@ class NleCompositedExportRenderer(
                 endOfStream = true,
                 muxerStarted = muxerStarted,
                 currentTrack = muxerTrack,
-            ).also { drain ->
-                muxerStarted = drain.muxerStarted
-                muxerTrack = drain.trackIndex
-            }
+            )
 
             emit("export_progress", mapOf("stage" to "Finalizing", "progress" to 99))
         } catch (cancelled: NleExportCancelledException) {
