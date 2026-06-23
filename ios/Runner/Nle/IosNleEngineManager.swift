@@ -7,6 +7,7 @@ final class IosNleEngineManager {
     private let validator = IosNleRenderGraphValidator()
     private let mediaProbe = IosNleMediaProbe()
     private let previewTextureManager: IosNlePreviewTextureManager
+    private let nativeExportRenderer: IosNleNativeExportRenderer
 
     private var initialized = false
     private var sessions: [String: IosNleEngineSession] = [:]
@@ -24,6 +25,7 @@ final class IosNleEngineManager {
             textureRegistry: textureRegistry,
             eventEmitter: eventEmitter
         )
+        self.nativeExportRenderer = IosNleNativeExportRenderer(eventEmitter: eventEmitter)
     }
 
     func initialize() -> [String: Any?] {
@@ -178,9 +180,7 @@ final class IosNleEngineManager {
             throw NSError(domain: "IosNleEngineManager", code: 8, userInfo: [NSLocalizedDescriptionKey: IosNleErrorCode.sessionNotFound])
         }
         session.setPlaybackRate(rate)
-        eventEmitter.emit(
-            IosNleEvent(type: IosNleEventType.playbackRateChanged, projectId: projectId, sessionId: session.sessionId, payload: ["playbackRate": session.playbackRate])
-        )
+        eventEmitter.emit(IosNleEvent(type: IosNleEventType.playbackRateChanged, projectId: projectId, sessionId: session.sessionId, payload: ["playbackRate": session.playbackRate]))
         return ["success": true, "session": session.toMap()]
     }
 
@@ -198,6 +198,7 @@ final class IosNleEngineManager {
             "platform": "ios",
             "codec": ["h264Decode": true, "h264Encode": true, "hevcDecode": true, "hevcEncode": true, "aacDecode": true, "aacEncode": true],
             "preview": ["texture": "flutter_texture_pixel_buffer_v1", "avFoundation": true, "metal": false],
+            "export": ["avAssetExportSession": true, "compositedMetalExport": false],
             "limits": ["safePreviewHeight": 1080, "recommendedProxyHeight": 720, "allow4kExport": true]
         ]
         eventEmitter.emit(IosNleEvent(type: IosNleEventType.deviceCapabilities, projectId: nil, sessionId: nil, payload: result))
@@ -249,8 +250,7 @@ final class IosNleEngineManager {
         truePreviewRenderers[monitorId] = renderer
         truePreviewProjectIds[monitorId] = projectId
         let textureResult = previewTextureManager.createPreviewTexture(projectId: projectId, sessionId: session.sessionId, monitorId: monitorId, width: maxPreviewWidth, height: maxPreviewHeight)
-        guard let previewTexture = textureResult["previewTexture"] as? [String: Any?],
-              let textureIdNumber = previewTexture["textureId"] as? NSNumber else {
+        guard let previewTexture = textureResult["previewTexture"] as? [String: Any?], let textureIdNumber = previewTexture["textureId"] as? NSNumber else {
             throw NSError(domain: "IosNleEngineManager", code: 23, userInfo: [NSLocalizedDescriptionKey: "Failed to create iOS preview texture."])
         }
         let textureId = textureIdNumber.int64Value
@@ -366,14 +366,17 @@ final class IosNleEngineManager {
         let jobId = args.stringRequired("jobId")
         let renderGraphJson = args.stringRequired("renderGraphJson")
         let outputPath = args.stringRequired("outputPath")
-        IosNleExportJobFoundation().start(projectId: projectId, jobId: jobId, renderGraphJson: renderGraphJson, outputPath: outputPath, eventEmitter: eventEmitter)
-        return ["success": true, "jobId": jobId]
+        return try nativeExportRenderer.start(
+            projectId: projectId,
+            jobId: jobId,
+            renderGraphJson: renderGraphJson,
+            outputPath: outputPath
+        )
     }
 
     func cancelExportJob(jobId: String) throws -> [String: Any?] {
         try requireInitialized()
-        eventEmitter.emit(IosNleEvent(type: IosNleEventType.exportCancelled, projectId: nil, sessionId: nil, jobId: jobId, payload: ["jobId": jobId, "platform": "ios"]))
-        return ["success": true, "jobId": jobId]
+        return nativeExportRenderer.cancel(jobId: jobId)
     }
 }
 
