@@ -1,6 +1,7 @@
 enum ExportBlockReason {
   noClips,
   qaFailed,
+  mediaUnavailable,
   deviceUnsupported,
   autosaveSaving,
   alreadyExporting,
@@ -40,6 +41,8 @@ class ExportReadiness {
         return 'Timeline is empty. Add clips before exporting.';
       case ExportBlockReason.qaFailed:
         return 'Project QA checks failed. Please fix timeline errors first.';
+      case ExportBlockReason.mediaUnavailable:
+        return detailMessage ?? 'Some timeline media is unavailable. Relink media before exporting.';
       case ExportBlockReason.deviceUnsupported:
         return detailMessage ?? 'Device conditions unsuitable for rendering.';
       case ExportBlockReason.autosaveSaving:
