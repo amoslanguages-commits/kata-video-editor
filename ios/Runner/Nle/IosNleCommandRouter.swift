@@ -124,23 +124,8 @@ final class IosNleCommandRouter {
             case "validate_export_graph":
                 result(["success": true, "result": ["passed": true, "issues": []]])
 
-            case "prepare_true_preview":
-                result(["success": true, "result": ["accepted": true, "monitorId": args["monitorId"] as? String ?? "program"]])
-
-            case "render_preview_frame":
-                result(["success": true, "result": ["accepted": true, "monitorId": args["monitorId"] as? String ?? "program", "timelineTimeUs": args["timelineTimeUs"]]])
-
-            case "start_true_preview":
-                result(["success": true, "result": ["accepted": true, "monitorId": args["monitorId"] as? String ?? "program"]])
-
-            case "pause_true_preview":
-                result(["success": true, "result": ["accepted": true, "monitorId": args["monitorId"] as? String ?? "program"]])
-
-            case "stop_true_preview":
-                result(["success": true, "result": ["accepted": true, "monitorId": args["monitorId"] as? String ?? "program"]])
-
-            case "dispose_true_preview":
-                result(["success": true, "result": ["accepted": true, "monitorId": args["monitorId"] as? String ?? "program"]])
+            case "prepare_true_preview", "render_preview_frame", "start_true_preview", "pause_true_preview", "stop_true_preview", "dispose_true_preview":
+                result(nativePreviewNotImplemented(method: method))
 
             default:
                 result(FlutterMethodNotImplemented)
@@ -156,6 +141,17 @@ final class IosNleCommandRouter {
                 ]
             ])
         }
+    }
+
+    private func nativePreviewNotImplemented(method: String) -> [String: Any] {
+        return [
+            "success": false,
+            "error": [
+                "code": "native_preview_not_implemented",
+                "message": "Native preview is not fully implemented on iOS yet.",
+                "technicalMessage": "\(method) must be backed by a real AVFoundation/Metal preview implementation before it can return success."
+            ]
+        ]
     }
 }
 
