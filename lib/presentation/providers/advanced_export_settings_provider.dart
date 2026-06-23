@@ -14,6 +14,24 @@ String advancedExportSettingsPrefsKey(String projectId) {
   return 'nle.export.advanced_settings.$projectId';
 }
 
+Future<Map<String, dynamic>> loadAdvancedExportSettings(String projectId) async {
+  final prefs = await SharedPreferences.getInstance();
+  final raw = prefs.getString(advancedExportSettingsPrefsKey(projectId));
+  if (raw == null || raw.trim().isEmpty) {
+    return const AdvancedExportSettings().toSettingsMap();
+  }
+
+  try {
+    final decoded = jsonDecode(raw);
+    if (decoded is Map<String, dynamic>) return decoded;
+    if (decoded is Map) {
+      return decoded.map((key, value) => MapEntry(key.toString(), value));
+    }
+  } catch (_) {}
+
+  return const AdvancedExportSettings().toSettingsMap();
+}
+
 void updateAdvancedExportSetting(
   WidgetRef ref,
   String projectId,
@@ -21,7 +39,7 @@ void updateAdvancedExportSetting(
   Object? value,
 ) {
   final current = ref.read(advancedExportSettingsProvider(projectId));
-  final next = {
+  final next = <String, dynamic>{
     ...current,
     key: value,
   };
