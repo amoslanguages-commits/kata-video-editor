@@ -124,6 +124,24 @@ final class IosNleCommandRouter {
             case "validate_export_graph":
                 result(["success": true, "result": ["passed": true, "issues": []]])
 
+            case "prepare_true_preview":
+                result(["success": true, "result": ["accepted": true, "monitorId": args["monitorId"] as? String ?? "program"]])
+
+            case "render_preview_frame":
+                result(["success": true, "result": ["accepted": true, "monitorId": args["monitorId"] as? String ?? "program", "timelineTimeUs": args["timelineTimeUs"]]])
+
+            case "start_true_preview":
+                result(["success": true, "result": ["accepted": true, "monitorId": args["monitorId"] as? String ?? "program"]])
+
+            case "pause_true_preview":
+                result(["success": true, "result": ["accepted": true, "monitorId": args["monitorId"] as? String ?? "program"]])
+
+            case "stop_true_preview":
+                result(["success": true, "result": ["accepted": true, "monitorId": args["monitorId"] as? String ?? "program"]])
+
+            case "dispose_true_preview":
+                result(["success": true, "result": ["accepted": true, "monitorId": args["monitorId"] as? String ?? "program"]])
+
             default:
                 result(FlutterMethodNotImplemented)
             }
