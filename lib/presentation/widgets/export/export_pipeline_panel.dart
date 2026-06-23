@@ -1,9 +1,12 @@
+import 'dart:convert';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import 'package:nle_editor/core/theme/app_theme.dart';
 import 'package:nle_editor/data/database/app_database.dart';
 import 'package:nle_editor/domain/export/export_pipeline_models.dart';
+import 'package:nle_editor/presentation/providers/editor_providers.dart';
 import 'package:nle_editor/presentation/providers/export_pipeline_providers.dart';
 
 class ExportPipelinePanel extends ConsumerWidget {
@@ -44,7 +47,10 @@ class ExportPipelinePanel extends ConsumerWidget {
                         itemCount: sortedJobs.length,
                         separatorBuilder: (_, __) => const SizedBox(height: 10),
                         itemBuilder: (context, index) {
-                          return _ExportJobTile(job: sortedJobs[index]);
+                          return _ExportJobTile(
+                            projectId: projectId,
+                            job: sortedJobs[index],
+                          );
                         },
                       ),
               ),
@@ -144,13 +150,16 @@ class _Metric extends StatelessWidget {
   }
 }
 
-class _ExportJobTile extends StatelessWidget {
+class _ExportJobTile extends ConsumerWidget {
+  final String projectId;
   final ExportJob job;
 
-  const _ExportJobTile({required this.job});
+  const _ExportJobTile({required this.projectId, required this.job});
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
+    final settings = _decodeSettings(job.settings);
+    final viewModel = NleExportJobViewModel(job: job, settings: settings);
     final color = _statusColor(job.status);
     final progress = job.progress.clamp(0, 100) / 100.0;
 
@@ -170,7 +179,7 @@ class _ExportJobTile extends StatelessWidget {
               const SizedBox(width: 10),
               Expanded(
                 child: Text(
-                  'Export job',
+                  '${viewModel.presetName} • ${viewModel.resolutionLabel}',
                   style: const TextStyle(
                     color: AppTheme.textPrimary,
                     fontSize: 14,
@@ -217,11 +226,145 @@ class _ExportJobTile extends StatelessWidget {
             const SizedBox(height: 8),
             Text(
               job.errorMessage!,
+              maxLines: 2,
+              overflow: TextOverflow.ellipsis,
               style: const TextStyle(color: AppTheme.error, fontSize: 12),
             ),
           ],
+          const SizedBox(height: 10),
+          Row(
+            children: [
+              TextButton.icon(
+                onPressed: () => _showDetails(context, viewModel),
+                icon: const Icon(Icons.info_outline_rounded, size: 16),
+                label: const Text('Details'),
+              ),
+              const Spacer(),
+              if (viewModel.isFailed)
+                TextButton.icon(
+                  onPressed: () => _retryExport(context, ref, settings),
+                  icon: const Icon(Icons.refresh_rounded, size: 16),
+                  label: const Text('Retry'),
+                ),
+            ],
+          ),
         ],
       ),
+    );
+  }
+
+  Map<String, dynamic> _decodeSettings(String raw) {
+    try {
+      final decoded = jsonDecode(raw);
+      if (decoded is Map<String, dynamic>) return decoded;
+      if (decoded is Map) {
+        return decoded.map((key, value) => MapEntry(key.toString(), value));
+      }
+    } catch (_) {}
+    return const <String, dynamic>{};
+  }
+
+  Future<void> _retryExport(
+    BuildContext context,
+    WidgetRef ref,
+    Map<String, dynamic> settings,
+  ) async {
+    try {
+      await ref.read(nativeExportServiceProvider).startExport(
+            projectId: projectId,
+            settings: settings,
+          );
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Retry export started.')),
+        );
+      }
+    } catch (error) {
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Retry failed: $error'),
+            backgroundColor: AppTheme.error,
+          ),
+        );
+      }
+    }
+  }
+
+  void _showDetails(BuildContext context, NleExportJobViewModel viewModel) {
+    final job = viewModel.job;
+    final settingsText = const JsonEncoder.withIndent('  ').convert(viewModel.settings);
+
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: AppTheme.surfaceDark,
+      isScrollControlled: true,
+      builder: (context) {
+        return SafeArea(
+          child: Padding(
+            padding: const EdgeInsets.all(16),
+            child: SingleChildScrollView(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  const Row(
+                    children: [
+                      Icon(Icons.info_outline_rounded, color: AppTheme.accentPrimary),
+                      SizedBox(width: 10),
+                      Text(
+                        'Export Job Details',
+                        style: TextStyle(
+                          color: AppTheme.textPrimary,
+                          fontSize: 18,
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 16),
+                  _DetailRow(label: 'Status', value: job.status),
+                  _DetailRow(label: 'Stage', value: job.stage),
+                  _DetailRow(label: 'Progress', value: '${job.progress.clamp(0, 100)}%'),
+                  _DetailRow(label: 'Preset', value: viewModel.presetName),
+                  _DetailRow(label: 'Resolution', value: viewModel.resolutionLabel),
+                  _DetailRow(label: 'Bitrate', value: viewModel.bitrateLabel),
+                  if (job.outputPath != null && job.outputPath!.isNotEmpty)
+                    _DetailRow(label: 'Output', value: job.outputPath!),
+                  if (job.errorMessage != null && job.errorMessage!.isNotEmpty)
+                    _DetailRow(label: 'Error', value: job.errorMessage!),
+                  const SizedBox(height: 12),
+                  const Text(
+                    'Settings JSON',
+                    style: TextStyle(
+                      color: AppTheme.textPrimary,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                  const SizedBox(height: 6),
+                  Container(
+                    width: double.infinity,
+                    padding: const EdgeInsets.all(12),
+                    decoration: BoxDecoration(
+                      color: AppTheme.editorBackground,
+                      borderRadius: BorderRadius.circular(10),
+                      border: Border.all(color: AppTheme.borderSubtle),
+                    ),
+                    child: Text(
+                      settingsText,
+                      style: const TextStyle(
+                        color: AppTheme.textSecondary,
+                        fontSize: 12,
+                        fontFamily: 'monospace',
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        );
+      },
     );
   }
 
@@ -251,6 +394,38 @@ class _ExportJobTile extends StatelessWidget {
       return Icons.cancel_rounded;
     }
     return Icons.autorenew_rounded;
+  }
+}
+
+class _DetailRow extends StatelessWidget {
+  final String label;
+  final String value;
+
+  const _DetailRow({required this.label, required this.value});
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 8),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          SizedBox(
+            width: 88,
+            child: Text(
+              label,
+              style: const TextStyle(color: AppTheme.textMuted, fontSize: 12),
+            ),
+          ),
+          Expanded(
+            child: Text(
+              value,
+              style: const TextStyle(color: AppTheme.textSecondary, fontSize: 12),
+            ),
+          ),
+        ],
+      ),
+    );
   }
 }
 
