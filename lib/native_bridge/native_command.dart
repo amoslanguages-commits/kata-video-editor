@@ -42,6 +42,14 @@ class NativeCommandTypes {
   static const String startExport             = 'start_export';
   static const String startExportJob          = 'start_export_job';
   static const String cancelExportJob         = 'cancel_export_job';
+  static const String pauseExportJob          = 'pause_export_job';
+  static const String resumeExportJob         = 'resume_export_job';
+  static const String openExportFile          = 'open_export_file';
+  static const String openExportFolder        = 'open_export_folder';
+  static const String checkExportPermissions  = 'check_export_permissions';
+  static const String scheduleExportNotification = 'schedule_export_notification';
+  static const String recoverExportJobs       = 'recover_export_jobs';
+  static const String validateExportGraph     = 'validate_export_graph';
   static const String probeDeviceCapabilities = 'probe_device_capabilities';
   static const String getSessionState         = 'get_session_state';
 
