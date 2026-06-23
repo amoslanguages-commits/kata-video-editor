@@ -6,12 +6,14 @@ import 'package:nle_editor/presentation/providers/device_qa_controller.dart';
 import 'package:nle_editor/presentation/providers/editor_history_providers.dart';
 import 'package:nle_editor/presentation/providers/editor_providers.dart';
 import 'package:nle_editor/presentation/providers/multitrack_qa_providers.dart';
+import 'package:nle_editor/presentation/providers/project_media_management_providers.dart';
 import 'package:nle_editor/presentation/providers/real_multitrack_timeline_providers.dart';
 
 final exportReadinessProvider =
     Provider.family<ExportReadiness, String>((ref, projectId) {
   final timelineAsync = ref.watch(realProjectTimelineProvider(projectId));
   final qaReportAsync = ref.watch(projectMultitrackQaReportProvider(projectId));
+  final mediaHealthAsync = ref.watch(projectMediaHealthReportProvider(projectId));
   final deviceState = ref.watch(deviceQaControllerProvider);
   final autosaveState = ref.watch(editorAutosaveControllerProvider(projectId));
   final exportState = ref.watch(exportStateProvider);
@@ -40,12 +42,33 @@ final exportReadinessProvider =
       reasons.add(ExportBlockReason.noClips);
     },
     loading: () {
-      // If loading, treat as empty or preparing
+      // If loading, treat as preparing
       reasons.add(ExportBlockReason.previewPreparing);
     },
   );
 
-  // 4. Check QA report
+  // 4. Check 34C media health report. Final export should never start when
+  // timeline media is unavailable or corrupted.
+  mediaHealthAsync.when(
+    data: (report) {
+      if (!report.canExport) {
+        reasons.add(ExportBlockReason.mediaUnavailable);
+        final count = report.blockingItems.length;
+        detailMessage = count == 1
+            ? '1 timeline media file is unavailable. Open Storage > Media to relink it.'
+            : '$count timeline media files are unavailable. Open Storage > Media to relink them.';
+      }
+    },
+    error: (error, _) {
+      reasons.add(ExportBlockReason.mediaUnavailable);
+      detailMessage = 'Media health scan failed: $error';
+    },
+    loading: () {
+      reasons.add(ExportBlockReason.previewPreparing);
+    },
+  );
+
+  // 5. Check QA report
   qaReportAsync.when(
     data: (report) {
       if (!report.passed) {
@@ -60,7 +83,7 @@ final exportReadinessProvider =
     },
   );
 
-  // 5. Check Device Compatibility (e.g. thermal throttling, low memory, failed compatibility run)
+  // 6. Check Device Compatibility (e.g. thermal throttling, low memory, failed compatibility run)
   if (deviceState.qaReport != null) {
     if (!deviceState.qaReport!.passed) {
       reasons.add(ExportBlockReason.deviceUnsupported);
