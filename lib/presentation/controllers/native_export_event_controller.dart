@@ -42,6 +42,14 @@ class NativeExportEventController {
         await _handleProgress(event);
         break;
 
+      case NativeEventTypes.exportPaused:
+        await _handlePaused(event);
+        break;
+
+      case NativeEventTypes.exportResumed:
+        await _handleResumed(event);
+        break;
+
       case NativeEventTypes.exportCompleted:
         await _handleCompleted(event);
         break;
@@ -64,8 +72,8 @@ class NativeExportEventController {
       await ref.read(exportRepositoryProvider).updateExportJob(
             jobId,
             const ExportJobsCompanion(
-              status:   Value('running'),
-              stage:    Value('Preparing'),
+              status: Value('running'),
+              stage: Value('Preparing'),
               progress: Value(0),
             ),
           );
@@ -75,18 +83,18 @@ class NativeExportEventController {
   }
 
   Future<void> _handleProgress(NativeEvent event) async {
-    final jobId    = event.jobId;
+    final jobId = event.jobId;
     if (jobId == null) return;
 
     final progress = (event.payload['progress'] as num?)?.toInt() ?? 0;
-    final stage    = event.payload['stage']?.toString() ?? 'Rendering';
+    final stage = event.payload['stage']?.toString() ?? 'Rendering';
 
     try {
       await ref.read(exportRepositoryProvider).updateExportJob(
             jobId,
             ExportJobsCompanion(
-              status:   const Value('running'),
-              stage:    Value(stage),
+              status: const Value('running'),
+              stage: Value(stage),
               progress: Value(progress),
             ),
           );
@@ -95,21 +103,55 @@ class NativeExportEventController {
     }
   }
 
-  Future<void> _handleCompleted(NativeEvent event) async {
-    final jobId  = event.jobId;
+  Future<void> _handlePaused(NativeEvent event) async {
+    final jobId = event.jobId;
     if (jobId == null) return;
 
-    final result     = _asMap(event.payload['result']);
+    try {
+      await ref.read(exportRepositoryProvider).updateExportJob(
+            jobId,
+            const ExportJobsCompanion(
+              status: Value('paused'),
+              stage: Value('Paused'),
+            ),
+          );
+    } catch (e) {
+      debugPrint('[NativeExportEventController] exportPaused error: $e');
+    }
+  }
+
+  Future<void> _handleResumed(NativeEvent event) async {
+    final jobId = event.jobId;
+    if (jobId == null) return;
+
+    try {
+      await ref.read(exportRepositoryProvider).updateExportJob(
+            jobId,
+            const ExportJobsCompanion(
+              status: Value('running'),
+              stage: Value('Resuming'),
+            ),
+          );
+    } catch (e) {
+      debugPrint('[NativeExportEventController] exportResumed error: $e');
+    }
+  }
+
+  Future<void> _handleCompleted(NativeEvent event) async {
+    final jobId = event.jobId;
+    if (jobId == null) return;
+
+    final result = _asMap(event.payload['result']);
     final outputPath = result['outputPath']?.toString();
 
     try {
       await ref.read(exportRepositoryProvider).updateExportJob(
             jobId,
             ExportJobsCompanion(
-              status:      const Value('completed'),
-              stage:       const Value('Complete'),
-              progress:    const Value(100),
-              outputPath:  Value(outputPath),
+              status: const Value('completed'),
+              stage: const Value('Complete'),
+              progress: const Value(100),
+              outputPath: Value(outputPath),
               completedAt: Value(DateTime.now()),
             ),
           );
@@ -128,8 +170,8 @@ class NativeExportEventController {
       await ref.read(exportRepositoryProvider).updateExportJob(
             jobId,
             ExportJobsCompanion(
-              status:       const Value('failed'),
-              stage:        const Value('Failed'),
+              status: const Value('failed'),
+              stage: const Value('Failed'),
               errorMessage: Value(error),
             ),
           );
@@ -147,7 +189,7 @@ class NativeExportEventController {
             jobId,
             const ExportJobsCompanion(
               status: Value('cancelled'),
-              stage:  Value('Cancelled'),
+              stage: Value('Cancelled'),
             ),
           );
     } catch (e) {
