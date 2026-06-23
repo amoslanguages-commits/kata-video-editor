@@ -7,6 +7,7 @@ import 'package:path/path.dart' as p;
 import 'package:nle_editor/data/database/app_database.dart';
 import 'package:nle_editor/data/repositories/export_repository.dart';
 import 'package:nle_editor/domain/export/export_filename_builder.dart';
+import 'package:nle_editor/domain/export/export_filename_versioner.dart';
 import 'package:nle_editor/domain/render_graph/render_graph_service.dart';
 import 'package:nle_editor/domain/services/project_storage_service.dart';
 import 'package:nle_editor/native_bridge/native_bridge_contract.dart';
@@ -73,7 +74,11 @@ class NativeExportService {
             version: (DateTime.now().millisecondsSinceEpoch % 99) + 1,
           )
         : requestedName;
-    final outputPath = p.join(folders.exports, outputFileName);
+    final outputPath = await const ExportFilenameVersioner().uniquePath(
+      directoryPath: folders.exports,
+      fileName: outputFileName,
+    );
+    final finalOutputFileName = p.basename(outputPath);
 
     // Build export profile using DB project config
     final aspectRatio = project.aspectRatio;
@@ -82,7 +87,7 @@ class NativeExportService {
       'aspectRatio': aspectRatio,
       'resolution': settings['resolution'] ?? project.targetHeight,
       'frameRate': settings['frameRate'] ?? project.targetFrameRate,
-      'outputFileName': outputFileName,
+      'outputFileName': finalOutputFileName,
     });
 
     // Insert pending export record
@@ -95,7 +100,7 @@ class NativeExportService {
         stage: const Value('Preparing'),
         settings: jsonEncode({
           ...settings,
-          'outputFileName': outputFileName,
+          'outputFileName': finalOutputFileName,
         }),
       ),
     );
