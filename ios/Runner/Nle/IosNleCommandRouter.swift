@@ -124,8 +124,44 @@ final class IosNleCommandRouter {
             case "validate_export_graph":
                 result(["success": true, "result": ["passed": true, "issues": []]])
 
-            case "prepare_true_preview", "render_preview_frame", "start_true_preview", "pause_true_preview", "stop_true_preview", "dispose_true_preview":
-                result(nativePreviewNotImplemented(method: method))
+            case "prepare_true_preview":
+                let projectId = try args.stringRequired("projectId")
+                let monitorId = args["monitorId"] as? String ?? "program"
+                let renderGraphJson = try args.stringRequired("renderGraphJson")
+                let preferProxy = args["preferProxy"] as? Bool ?? true
+                let maxPreviewWidth = try args.intRequired("maxPreviewWidth")
+                let maxPreviewHeight = try args.intRequired("maxPreviewHeight")
+                result(try manager.prepareTruePreview(
+                    projectId: projectId,
+                    monitorId: monitorId,
+                    renderGraphJson: renderGraphJson,
+                    preferProxy: preferProxy,
+                    maxPreviewWidth: maxPreviewWidth,
+                    maxPreviewHeight: maxPreviewHeight
+                ))
+
+            case "render_preview_frame":
+                let monitorId = args["monitorId"] as? String ?? "program"
+                let timelineMicros = try args.int64Required("timelineTimeUs")
+                result(try manager.renderTruePreviewFrame(monitorId: monitorId, timelineMicros: timelineMicros))
+
+            case "start_true_preview":
+                let monitorId = args["monitorId"] as? String ?? "program"
+                let fromMicros = try args.int64Required("fromTimelineTimeUs")
+                result(try manager.startTruePreview(monitorId: monitorId, fromTimelineMicros: fromMicros))
+
+            case "pause_true_preview":
+                let monitorId = args["monitorId"] as? String ?? "program"
+                result(try manager.pauseTruePreview(monitorId: monitorId))
+
+            case "stop_true_preview":
+                let monitorId = args["monitorId"] as? String ?? "program"
+                manager.stopTruePreview(monitorId: monitorId)
+                result(["success": true, "stopped": true, "monitorId": monitorId])
+
+            case "dispose_true_preview":
+                let monitorId = args["monitorId"] as? String ?? "program"
+                result(try manager.disposeTruePreview(monitorId: monitorId))
 
             default:
                 result(FlutterMethodNotImplemented)
@@ -141,17 +177,6 @@ final class IosNleCommandRouter {
                 ]
             ])
         }
-    }
-
-    private func nativePreviewNotImplemented(method: String) -> [String: Any] {
-        return [
-            "success": false,
-            "error": [
-                "code": "native_preview_not_implemented",
-                "message": "Native preview is not fully implemented on iOS yet.",
-                "technicalMessage": "\(method) must be backed by a real AVFoundation/Metal preview implementation before it can return success."
-            ]
-        ]
     }
 }
 
