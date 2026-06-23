@@ -91,7 +91,7 @@ class NativeExportEventController {
             ExportJobsCompanion(
               status: const Value('running'),
               stage: Value(stage),
-              progress: Value(progress.clamp(0, 99)),
+              progress: Value(progress.clamp(0, 99).toInt()),
             ),
           );
     } catch (e) {
