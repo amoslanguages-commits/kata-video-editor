@@ -185,7 +185,14 @@ final class IosNleCompositedExportRenderer {
         let animation = CAKeyframeAnimation(keyPath: "opacity")
         animation.beginTime = AVCoreAnimationBeginTimeAtZero
         animation.duration = total
-        animation.keyTimes = [0, NSNumber(value: start), NSNumber(value: min(1.0, start + epsilon)), NSNumber(value: end), NSNumber(value: min(1.0, end + epsilon)), 1]
+        animation.keyTimes = [
+            NSNumber(value: 0),
+            NSNumber(value: start),
+            NSNumber(value: min(1.0, start + epsilon)),
+            NSNumber(value: end),
+            NSNumber(value: min(1.0, end + epsilon)),
+            NSNumber(value: 1),
+        ]
         animation.values = [0, 0, overlay.opacity, overlay.opacity, 0, 0]
         animation.isRemovedOnCompletion = false
         layer.add(animation, forKey: "timelineOpacity")
