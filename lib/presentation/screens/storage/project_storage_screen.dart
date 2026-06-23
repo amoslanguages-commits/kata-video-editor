@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import 'package:nle_editor/core/theme/app_theme.dart';
 import 'package:nle_editor/presentation/widgets/device/device_capability_card.dart';
+import 'package:nle_editor/presentation/widgets/export/export_pipeline_panel.dart';
 import 'package:nle_editor/presentation/widgets/panels/project_media_management_panel.dart';
 import 'package:nle_editor/presentation/widgets/storage/project_storage_panel.dart';
 
@@ -16,7 +17,7 @@ class ProjectStorageScreen extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return DefaultTabController(
-      length: 2,
+      length: 3,
       child: Scaffold(
         backgroundColor: AppTheme.editorBackground,
         appBar: AppBar(
@@ -25,6 +26,7 @@ class ProjectStorageScreen extends StatelessWidget {
             tabs: [
               Tab(icon: Icon(Icons.storage_rounded), text: 'Storage'),
               Tab(icon: Icon(Icons.folder_rounded), text: 'Media'),
+              Tab(icon: Icon(Icons.history_rounded), text: 'Exports'),
             ],
           ),
         ),
@@ -42,6 +44,7 @@ class ProjectStorageScreen extends StatelessWidget {
               ],
             ),
             ProjectMediaManagementPanel(projectId: projectId),
+            ExportPipelinePanel(projectId: projectId),
           ],
         ),
       ),
