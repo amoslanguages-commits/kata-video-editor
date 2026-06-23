@@ -237,14 +237,7 @@ final class IosNleEngineManager {
         return try previewTextureManager.disposePreviewTexture(textureId: textureId)
     }
 
-    func prepareTruePreview(
-        projectId: String,
-        monitorId: String,
-        renderGraphJson: String,
-        preferProxy: Bool,
-        maxPreviewWidth: Int,
-        maxPreviewHeight: Int
-    ) throws -> [String: Any?] {
+    func prepareTruePreview(projectId: String, monitorId: String, renderGraphJson: String, preferProxy: Bool, maxPreviewWidth: Int, maxPreviewHeight: Int) throws -> [String: Any?] {
         try requireInitialized()
         let session = try IosNleEngineSession(projectId: projectId, renderGraphJson: renderGraphJson)
         let validation = validator.validate(session.renderGraph)
@@ -255,13 +248,7 @@ final class IosNleEngineManager {
         let renderer = IosNleAvFoundationPreviewRenderer(renderGraph: session.renderGraph, preferProxy: preferProxy)
         truePreviewRenderers[monitorId] = renderer
         truePreviewProjectIds[monitorId] = projectId
-        let textureResult = previewTextureManager.createPreviewTexture(
-            projectId: projectId,
-            sessionId: session.sessionId,
-            monitorId: monitorId,
-            width: maxPreviewWidth,
-            height: maxPreviewHeight
-        )
+        let textureResult = previewTextureManager.createPreviewTexture(projectId: projectId, sessionId: session.sessionId, monitorId: monitorId, width: maxPreviewWidth, height: maxPreviewHeight)
         guard let previewTexture = textureResult["previewTexture"] as? [String: Any?],
               let textureIdNumber = previewTexture["textureId"] as? NSNumber else {
             throw NSError(domain: "IosNleEngineManager", code: 23, userInfo: [NSLocalizedDescriptionKey: "Failed to create iOS preview texture."])
@@ -269,16 +256,7 @@ final class IosNleEngineManager {
         let textureId = textureIdNumber.int64Value
         truePreviewTextureIds[monitorId] = textureId
         let frame = try renderer.renderFrame(timelineMicros: 0)
-        let frameResult = try previewTextureManager.renderDecodedFrame(
-            textureId: textureId,
-            image: frame.image,
-            projectId: projectId,
-            sessionId: session.sessionId,
-            monitorId: monitorId,
-            timelineMicros: frame.timelineMicros,
-            sourceMicros: frame.sourceMicros,
-            assetPath: frame.assetPath
-        )
+        let frameResult = try previewTextureManager.renderDecodedFrame(textureId: textureId, image: frame.image, projectId: projectId, sessionId: session.sessionId, monitorId: monitorId, timelineMicros: frame.timelineMicros, sourceMicros: frame.sourceMicros, assetPath: frame.assetPath)
         return ["success": true, "prepared": true, "monitorId": monitorId, "texture": previewTexture, "firstFrame": frameResult]
     }
 
@@ -291,22 +269,12 @@ final class IosNleEngineManager {
         }
         session.seek(timelineMicros)
         let frame = try renderer.renderFrame(timelineMicros: session.playheadMicros)
-        return try previewTextureManager.renderDecodedFrame(
-            textureId: textureId,
-            image: frame.image,
-            projectId: projectId,
-            sessionId: session.sessionId,
-            monitorId: monitorId,
-            timelineMicros: frame.timelineMicros,
-            sourceMicros: frame.sourceMicros,
-            assetPath: frame.assetPath
-        )
+        return try previewTextureManager.renderDecodedFrame(textureId: textureId, image: frame.image, projectId: projectId, sessionId: session.sessionId, monitorId: monitorId, timelineMicros: frame.timelineMicros, sourceMicros: frame.sourceMicros, assetPath: frame.assetPath)
     }
 
     func renderTruePreviewFrame(monitorId: String, timelineMicros: Int64) throws -> [String: Any?] {
         try requireInitialized()
-        guard let projectId = truePreviewProjectIds[monitorId],
-              let textureId = truePreviewTextureIds[monitorId] else {
+        guard let projectId = truePreviewProjectIds[monitorId], let textureId = truePreviewTextureIds[monitorId] else {
             throw NSError(domain: "IosNleEngineManager", code: 26, userInfo: [NSLocalizedDescriptionKey: "iOS true preview is not prepared for monitor \(monitorId)."])
         }
         return try renderFrame(projectId: projectId, monitorId: monitorId, textureId: textureId, timelineMicros: timelineMicros)
@@ -314,19 +282,18 @@ final class IosNleEngineManager {
 
     func startTruePreview(monitorId: String, fromTimelineMicros: Int64) throws -> [String: Any?] {
         try requireInitialized()
-        guard let projectId = truePreviewProjectIds[monitorId],
-              let session = sessions[projectId] else {
+        guard let projectId = truePreviewProjectIds[monitorId], let session = sessions[projectId] else {
             throw NSError(domain: "IosNleEngineManager", code: 27, userInfo: [NSLocalizedDescriptionKey: "iOS true preview is not prepared for monitor \(monitorId)."])
         }
         stopTruePreview(monitorId: monitorId)
         session.seek(fromTimelineMicros)
         session.play()
         let frameRate = max(1.0, frameRate(from: session.renderGraph))
-        let interval = 1.0 / frameRate
+        let intervalNanos = max(1_000_000, Int((1.0 / frameRate) * 1_000_000_000.0))
         let startWall = CFAbsoluteTimeGetCurrent()
         let startMicros = session.playheadMicros
         let timer = DispatchSource.makeTimerSource(queue: DispatchQueue(label: "ios.nle.truePreview.\(monitorId)"))
-        timer.schedule(deadline: .now(), repeating: interval)
+        timer.schedule(deadline: .now(), repeating: .nanoseconds(intervalNanos))
         timer.setEventHandler { [weak self] in
             guard let self else { return }
             let elapsedMicros = Int64((CFAbsoluteTimeGetCurrent() - startWall) * 1_000_000.0)
@@ -353,9 +320,7 @@ final class IosNleEngineManager {
     func pauseTruePreview(monitorId: String) throws -> [String: Any?] {
         try requireInitialized()
         stopTruePreview(monitorId: monitorId)
-        if let projectId = truePreviewProjectIds[monitorId] {
-            sessions[projectId]?.pause()
-        }
+        if let projectId = truePreviewProjectIds[monitorId] { sessions[projectId]?.pause() }
         return ["success": true, "paused": true, "monitorId": monitorId]
     }
 
@@ -367,19 +332,14 @@ final class IosNleEngineManager {
     func disposeTruePreview(monitorId: String) throws -> [String: Any?] {
         try requireInitialized()
         stopTruePreview(monitorId: monitorId)
-        if let textureId = truePreviewTextureIds.removeValue(forKey: monitorId) {
-            _ = try? previewTextureManager.disposePreviewTexture(textureId: textureId)
-        }
+        if let textureId = truePreviewTextureIds.removeValue(forKey: monitorId) { _ = try? previewTextureManager.disposePreviewTexture(textureId: textureId) }
         truePreviewRenderers.removeValue(forKey: monitorId)
         truePreviewProjectIds.removeValue(forKey: monitorId)
         return ["success": true, "disposed": true, "monitorId": monitorId]
     }
 
     private func frameRate(from graph: [String: Any]) -> Double {
-        if let project = graph["project"] as? [String: Any],
-           let number = project["frameRate"] as? NSNumber {
-            return number.doubleValue
-        }
+        if let project = graph["project"] as? [String: Any], let number = project["frameRate"] as? NSNumber { return number.doubleValue }
         return 30.0
     }
 
@@ -419,9 +379,7 @@ final class IosNleEngineManager {
 
 private extension Dictionary where Key == String, Value == Any? {
     func stringRequired(_ key: String) throws -> String {
-        if let value = self[key] as? String, !value.isEmpty {
-            return value
-        }
+        if let value = self[key] as? String, !value.isEmpty { return value }
         throw NSError(domain: "IosNleArguments", code: 1, userInfo: [NSLocalizedDescriptionKey: "\(IosNleErrorCode.invalidArguments): missing string \(key)"])
     }
 }
