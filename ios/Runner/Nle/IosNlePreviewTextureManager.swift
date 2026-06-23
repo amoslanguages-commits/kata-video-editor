@@ -1,5 +1,6 @@
 import Foundation
 import Flutter
+import CoreGraphics
 
 final class IosNlePreviewTextureManager {
     private let textureRegistry: FlutterTextureRegistry
@@ -17,6 +18,8 @@ final class IosNlePreviewTextureManager {
 
     func createPreviewTexture(
         projectId: String?,
+        sessionId: String?,
+        monitorId: String,
         width: Int,
         height: Int
     ) -> [String: Any?] {
@@ -24,28 +27,41 @@ final class IosNlePreviewTextureManager {
         let textureId = textureRegistry.register(texture)
 
         texture.setTextureId(textureId)
+        if let projectId {
+            texture.attach(projectId: projectId, sessionId: sessionId)
+        }
         textures[textureId] = texture
-
-        texture.drawPlaceholder(
-            label: "iOS Native Preview",
-            playheadMicros: 0
-        )
-
-        textureRegistry.textureFrameAvailable(textureId)
 
         eventEmitter.emit(
             IosNleEvent(
-                type: IosNleEventType.previewSurfaceReady,
+                type: "preview_texture_ready",
                 projectId: projectId,
-                sessionId: nil,
-                payload: texture.toMap()
+                sessionId: sessionId,
+                payload: texture.toMap().merging([
+                    "monitorId": monitorId
+                ]) { current, _ in current }
             )
         )
 
         return [
             "success": true,
-            "previewTexture": texture.toMap()
+            "previewTexture": texture.toMap(),
+            "monitorId": monitorId
         ]
+    }
+
+    func createPreviewTexture(
+        projectId: String?,
+        width: Int,
+        height: Int
+    ) -> [String: Any?] {
+        return createPreviewTexture(
+            projectId: projectId,
+            sessionId: nil,
+            monitorId: "program",
+            width: width,
+            height: height
+        )
     }
 
     func attachPreviewTexture(
@@ -62,12 +78,6 @@ final class IosNlePreviewTextureManager {
         }
 
         texture.attach(projectId: projectId, sessionId: sessionId)
-        texture.drawPlaceholder(
-            label: "Attached to iOS Project",
-            playheadMicros: 0
-        )
-
-        textureRegistry.textureFrameAvailable(textureId)
 
         eventEmitter.emit(
             IosNleEvent(
@@ -84,10 +94,15 @@ final class IosNlePreviewTextureManager {
         ]
     }
 
-    func renderPlaceholder(
+    func renderDecodedFrame(
         textureId: Int64,
-        label: String,
-        playheadMicros: Int64
+        image: CGImage,
+        projectId: String,
+        sessionId: String?,
+        monitorId: String,
+        timelineMicros: Int64,
+        sourceMicros: Int64,
+        assetPath: String
     ) throws -> [String: Any?] {
         guard let texture = textures[textureId] else {
             throw NSError(
@@ -97,28 +112,42 @@ final class IosNlePreviewTextureManager {
             )
         }
 
-        texture.drawPlaceholder(
-            label: label,
-            playheadMicros: playheadMicros
-        )
-
+        try texture.render(image: image)
         textureRegistry.textureFrameAvailable(textureId)
 
         eventEmitter.emit(
             IosNleEvent(
-                type: IosNleEventType.previewFrameRendered,
-                projectId: texture.projectId,
-                sessionId: texture.sessionId,
+                type: "preview_frame_rendered",
+                projectId: projectId,
+                sessionId: sessionId,
                 payload: texture.toMap().merging([
-                    "playheadMicros": playheadMicros
+                    "monitorId": monitorId,
+                    "timelineTimeUs": timelineMicros,
+                    "sourceTimeUs": sourceMicros,
+                    "assetPath": assetPath
                 ]) { current, _ in current }
             )
         )
 
         return [
             "success": true,
-            "previewTexture": texture.toMap()
+            "previewTexture": texture.toMap(),
+            "timelineTimeUs": timelineMicros,
+            "sourceTimeUs": sourceMicros,
+            "monitorId": monitorId
         ]
+    }
+
+    func renderPlaceholder(
+        textureId: Int64,
+        label: String,
+        playheadMicros: Int64
+    ) throws -> [String: Any?] {
+        throw NSError(
+            domain: "IosNlePreviewTextureManager",
+            code: 2,
+            userInfo: [NSLocalizedDescriptionKey: "Placeholder preview rendering is disabled in full-native mode."]
+        )
     }
 
     func renderPlaceholderForProject(
@@ -126,15 +155,21 @@ final class IosNlePreviewTextureManager {
         label: String,
         playheadMicros: Int64
     ) {
-        textures.values
-            .filter { $0.projectId == projectId }
-            .forEach { texture in
-                texture.drawPlaceholder(
-                    label: label,
-                    playheadMicros: playheadMicros
-                )
-                textureRegistry.textureFrameAvailable(texture.textureId)
-            }
+        eventEmitter.emit(
+            IosNleEvent(
+                type: "preview_error",
+                projectId: projectId,
+                sessionId: nil,
+                payload: [
+                    "monitorId": "program",
+                    "message": "Placeholder preview rendering is disabled in full-native mode."
+                ]
+            )
+        )
+    }
+
+    func textureIdForProject(_ projectId: String) -> Int64? {
+        return textures.values.first(where: { $0.projectId == projectId })?.textureId
     }
 
     func disposePreviewTexture(textureId: Int64) throws -> [String: Any?] {
