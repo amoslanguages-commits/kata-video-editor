@@ -20,7 +20,6 @@ final class IosNlePreviewTexture: NSObject, FlutterTexture {
         self.height = max(height, 16)
         super.init()
         createPixelBuffer()
-        drawPlaceholder(label: "iOS Native Preview", playheadMicros: 0)
     }
 
     func setTextureId(_ id: Int64) {
@@ -43,16 +42,20 @@ final class IosNlePreviewTexture: NSObject, FlutterTexture {
         return Unmanaged.passRetained(pixelBuffer)
     }
 
-    func drawPlaceholder(
-        label: String,
-        playheadMicros: Int64
-    ) {
+    func render(image: CGImage) throws {
         lock.lock()
         defer { lock.unlock() }
 
-        guard let pixelBuffer else { return }
+        guard let pixelBuffer else {
+            throw NSError(
+                domain: "IosNlePreviewTexture",
+                code: 1,
+                userInfo: [NSLocalizedDescriptionKey: "Preview pixel buffer is missing."]
+            )
+        }
 
         CVPixelBufferLockBaseAddress(pixelBuffer, [])
+        defer { CVPixelBufferUnlockBaseAddress(pixelBuffer, []) }
 
         guard let context = CGContext(
             data: CVPixelBufferGetBaseAddress(pixelBuffer),
@@ -63,78 +66,30 @@ final class IosNlePreviewTexture: NSObject, FlutterTexture {
             space: CGColorSpaceCreateDeviceRGB(),
             bitmapInfo: CGImageAlphaInfo.premultipliedFirst.rawValue
         ) else {
-            CVPixelBufferUnlockBaseAddress(pixelBuffer, [])
-            return
+            throw NSError(
+                domain: "IosNlePreviewTexture",
+                code: 2,
+                userInfo: [NSLocalizedDescriptionKey: "Could not create preview CGContext."]
+            )
         }
 
-        context.setFillColor(UIColor(red: 0.03, green: 0.04, blue: 0.08, alpha: 1.0).cgColor)
+        context.setFillColor(UIColor.black.cgColor)
         context.fill(CGRect(x: 0, y: 0, width: width, height: height))
 
-        context.setStrokeColor(UIColor.cyan.withAlphaComponent(0.75).cgColor)
-        context.setLineWidth(3)
-        context.stroke(CGRect(x: 10, y: 10, width: width - 20, height: height - 20))
-
-        let paragraph = NSMutableParagraphStyle()
-        paragraph.alignment = .center
-
-        let titleAttributes: [NSAttributedString.Key: Any] = [
-            .foregroundColor: UIColor.white,
-            .font: UIFont.boldSystemFont(ofSize: max(24, CGFloat(width) * 0.035)),
-            .paragraphStyle: paragraph
-        ]
-
-        let smallAttributes: [NSAttributedString.Key: Any] = [
-            .foregroundColor: UIColor.white.withAlphaComponent(0.78),
-            .font: UIFont.systemFont(ofSize: max(14, CGFloat(width) * 0.018)),
-            .paragraphStyle: paragraph
-        ]
-
-        let titleRect = CGRect(
-            x: 0,
-            y: CGFloat(height) * 0.42,
-            width: CGFloat(width),
-            height: 60
+        let sourceWidth = CGFloat(image.width)
+        let sourceHeight = CGFloat(image.height)
+        let scale = min(CGFloat(width) / sourceWidth, CGFloat(height) / sourceHeight)
+        let drawWidth = sourceWidth * scale
+        let drawHeight = sourceHeight * scale
+        let drawRect = CGRect(
+            x: (CGFloat(width) - drawWidth) / 2.0,
+            y: (CGFloat(height) - drawHeight) / 2.0,
+            width: drawWidth,
+            height: drawHeight
         )
 
-        NSString(string: label).draw(
-            in: titleRect,
-            withAttributes: titleAttributes
-        )
-
-        let subtitle = "Texture ID: \(textureId) • \(width)x\(height)"
-        NSString(string: subtitle).draw(
-            in: CGRect(
-                x: 0,
-                y: CGFloat(height) * 0.50,
-                width: CGFloat(width),
-                height: 34
-            ),
-            withAttributes: smallAttributes
-        )
-
-        let playhead = "Playhead: \(playheadMicros / 1000) ms"
-        NSString(string: playhead).draw(
-            in: CGRect(
-                x: 0,
-                y: CGFloat(height) * 0.55,
-                width: CGFloat(width),
-                height: 34
-            ),
-            withAttributes: smallAttributes
-        )
-
-        let footer = "iOS native engine path ready. Metal compositor comes later."
-        NSString(string: footer).draw(
-            in: CGRect(
-                x: 0,
-                y: CGFloat(height) - 46,
-                width: CGFloat(width),
-                height: 34
-            ),
-            withAttributes: smallAttributes
-        )
-
-        CVPixelBufferUnlockBaseAddress(pixelBuffer, [])
+        context.interpolationQuality = .high
+        context.draw(image, in: drawRect)
     }
 
     func toMap() -> [String: Any?] {
