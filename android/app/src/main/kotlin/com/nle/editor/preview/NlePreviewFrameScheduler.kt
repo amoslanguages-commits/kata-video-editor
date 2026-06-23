@@ -4,8 +4,10 @@ import android.os.Handler
 import android.os.HandlerThread
 import android.os.SystemClock
 import com.nle.editor.sync.NlePreviewSyncTelemetry
-import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.CountDownLatch
+import java.util.concurrent.TimeUnit
+import java.util.concurrent.TimeoutException
+import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicReference
 
 class NlePreviewFrameScheduler(
@@ -20,6 +22,10 @@ class NlePreviewFrameScheduler(
 
     private var startTimelineUs: Long = 0L
     private var startClockMs: Long = 0L
+    private var consecutiveDroppedFrames = 0
+
+    private val renderThreadTimeoutMs = 2500L
+    private val maxConsecutiveDroppedFrames = 5
 
     fun startThread() {
         if (!thread.isAlive) {
@@ -34,6 +40,7 @@ class NlePreviewFrameScheduler(
             try {
                 task()
             } catch (t: Throwable) {
+                playing.set(false)
                 events.onPreviewError(t.message ?: t.toString())
             }
         }
@@ -60,22 +67,33 @@ class NlePreviewFrameScheduler(
             }
         }
 
-        latch.await()
+        if (!latch.await(renderThreadTimeoutMs, TimeUnit.MILLISECONDS)) {
+            throw TimeoutException("Native preview render thread timed out after ${renderThreadTimeoutMs}ms.")
+        }
+
         error.get()?.let { throw it }
 
         @Suppress("UNCHECKED_CAST")
         return result.get() as T
     }
 
-    fun play(
-        fromTimelineUs: Long,
-    ) {
+    fun play(fromTimelineUs: Long) {
         startThread()
 
-        val graph = renderer.currentGraph() ?: return
+        val graph = renderer.currentGraph()
+        if (graph == null) {
+            events.onPreviewError("Preview graph is missing.")
+            return
+        }
+
+        if (graph.project.durationUs <= 0L) {
+            events.onPreviewError("Preview duration is empty.")
+            return
+        }
 
         startTimelineUs = fromTimelineUs.coerceIn(0L, graph.project.durationUs)
         startClockMs = SystemClock.elapsedRealtime()
+        consecutiveDroppedFrames = 0
 
         playing.set(true)
         renderer.setPlaying()
@@ -95,9 +113,7 @@ class NlePreviewFrameScheduler(
         }
     }
 
-    fun seekAndRender(
-        timelineTimeUs: Long,
-    ) {
+    fun seekAndRender(timelineTimeUs: Long): NlePreviewFrameResult {
         startThread()
 
         playing.set(false)
@@ -105,9 +121,13 @@ class NlePreviewFrameScheduler(
 
         handler.removeCallbacksAndMessages(null)
 
-        handler.post {
+        return runOnRenderThreadBlocking {
             val result = renderer.renderFrame(timelineTimeUs)
             emitFrameResult(result)
+            if (result.rendered) {
+                consecutiveDroppedFrames = 0
+            }
+            result
         }
     }
 
@@ -130,6 +150,8 @@ class NlePreviewFrameScheduler(
             val graph = renderer.currentGraph()
 
             if (graph == null) {
+                playing.set(false)
+                renderer.setPaused()
                 events.onPreviewError("Preview graph is missing.")
                 return
             }
@@ -151,13 +173,25 @@ class NlePreviewFrameScheduler(
             val result = renderer.renderFrame(timelineTimeUs)
             val renderCostMs = SystemClock.elapsedRealtime() - before
 
-            // Record frame timing for 29D sync QA
             syncTelemetry.onFrame(
                 timelineTimeUs = timelineTimeUs,
-                renderCostMs   = renderCostMs,
+                renderCostMs = renderCostMs,
             )
 
-            emitFrameResult(result)
+            val rendered = emitFrameResult(result)
+            if (rendered) {
+                consecutiveDroppedFrames = 0
+            } else {
+                consecutiveDroppedFrames += 1
+                if (consecutiveDroppedFrames >= maxConsecutiveDroppedFrames) {
+                    playing.set(false)
+                    renderer.setPaused()
+                    events.onPreviewError(
+                        "Native preview stopped after ${consecutiveDroppedFrames} consecutive render failures."
+                    )
+                    return
+                }
+            }
 
             val delayMs = (frameDurationMs - renderCostMs).coerceAtLeast(0L)
 
@@ -172,16 +206,16 @@ class NlePreviewFrameScheduler(
         }
     }
 
-    private fun emitFrameResult(
-        result: NlePreviewFrameResult,
-    ) {
-        if (result.rendered) {
+    private fun emitFrameResult(result: NlePreviewFrameResult): Boolean {
+        return if (result.rendered) {
             events.onPreviewFrameRendered(result.timelineTimeUs)
+            true
         } else {
             events.onPreviewDroppedFrame(
                 timelineTimeUs = result.timelineTimeUs,
                 reason = result.reason ?: "Unknown render failure.",
             )
+            false
         }
     }
 }
