@@ -3,6 +3,15 @@ allprojects {
         google()
         mavenCentral()
     }
+    extra.set("compileSdkVersion", 36)
+    extra.set("targetSdkVersion", 36)
+    // Redirect legacy jcenter() calls from old plugins to mavenCentral
+    buildscript {
+        repositories {
+            google()
+            mavenCentral()
+        }
+    }
 }
 
 val newBuildDir: Directory =
@@ -15,6 +24,14 @@ subprojects {
     val newSubprojectBuildDir: Directory = newBuildDir.dir(project.name)
     project.layout.buildDirectory.value(newSubprojectBuildDir)
 }
+subprojects {
+    afterEvaluate {
+        project.extensions.findByType<com.android.build.gradle.LibraryExtension>()?.apply {
+            compileSdk = 36
+        }
+    }
+}
+
 subprojects {
     project.evaluationDependsOn(":app")
 }

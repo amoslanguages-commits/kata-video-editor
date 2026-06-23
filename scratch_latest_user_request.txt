@@ -1,0 +1,118 @@
+<USER_REQUEST>
+// ============================================================================
+// STEP 17: NATIVE EXPORT V1
+// ============================================================================
+//
+// Adds:
+//
+// - Android native export job type
+// - Export profile model
+// - Render graph export parser
+// - Timeline clip resolver
+// - First visual track hard-cut export
+// - H.264 MP4 output using MediaCodec + MediaMuxer
+// - Progress events
+// - Cancel export job support
+// - Export completed / failed / cancelled events
+// - Dart bridge methods
+// - Flutter native export service
+// - ExportJobs DB update from native events
+//
+// IMPORTANT:
+//
+// V1 is intentionally realistic:
+//
+// ✅ first video/visual track
+// ✅ hard cuts
+// ✅ H.264 MP4
+// ✅ selected output resolution
+// ✅ selected frame rate
+// ✅ native Android output
+//
+// Not yet:
+//
+// ⚠️ no audio mix
+// ⚠️ no text rendering
+// ⚠️ no effects
+// ⚠️ no transitions
+// ⚠️ no color pipeline
+// ⚠️ no true MediaCodec decoder + GLES compositor yet
+//
+// V1 method:
+//
+// Render graph -> resolve first visual track -> sample frames -> encode H.264 MP4.
+//
+// Production upgrade path:
+//
+// STEP 18:
+// MediaExtractor -> MediaCodec decoder -> GPU compositor -> encoder surface
+//
+// STEP 19:
+// Native text/effects/transitions/audio export.
+//
+// ============================================================================
+
+
+// ============================================================================
+// 1. UPDATE CHANNEL CONSTANTS
+// ============================================================================
+
+
+// ==================== android/app/src/main/kotlin/com/example/nle_editor/nle/NleChannels.kt ====================
+
+package com.example.nle_editor.nle
+
+object NleChannels {
+    const val METHOD_CHANNEL = "nle_editor/native_methods"
+    const val EVENT_CHANNEL = "nle_editor/native_events"
+}
+
+object NleNativeCommandType {
+    const val INITIALIZE = "initialize"
+    const val DISPOSE = "dispose"
+
+    const val LOAD_RENDER_G
+<truncated 45215 bytes>
+
+  static const String playheadChanged = 'playhead_changed';
+  static const String playbackRateChanged = 'playback_rate_changed';
+
+  static const String audioEngineReady = 'audio_engine_ready';
+  static const String audioEngineStarted = 'audio_engine_started';
+  static const String audioEngineStopped = 'audio_engine_stopped';
+  static const String audioEngineError = 'audio_engine_error';
+
+  static const String jobStarted = 'job_started';
+  static const String jobProgress = 'job_progress';
+  static const String jobCompleted = 'job_completed';
+  static const String jobFailed = 'job_failed';
+  static const String jobCancelled = 'job_cancelled';
+
+  static const String proxyStarted = 'proxy_started';
+  static const String proxyProgress = 'proxy_progress';
+  static const String proxyCompleted = 'proxy_completed';
+  static const String proxyFailed = 'proxy_failed';
+  static const String proxyCancelled = 'proxy_cancelled';
+
+  static const String exportStarted = 'export_started';
+  static const String exportProgress = 'export_progress';
+  static const String exportCompleted = 'export_completed';
+  static const String exportFailed = 'export_failed';
+  static const String exportCancelled = 'export_cancelled';
+
+  static const String deviceCapabilities = 'device_capabilities';
+
+  static const String previewSurfaceReady = 'preview_surface_ready';
+  static const String previewSurfaceAttached = 'preview_surface_attached';
+  static const String previewSurfaceResized = 'preview_surface_resized';
+  static const String previewSurfaceDisposed = 'preview_surface_disposed';
+  static const String previewFrameRendered = 'preview_frame_rendered';
+
+  static const String engineError = 'engine_error';
+  static const String decoderError = 'decoder_error';
+  static const String missingFile = 'missing_file';
+  static const String memoryWarning = 'memory_warning';
+  static const String the
+<truncated 19512 bytes>
+
+NOTE: The output was truncated because it was too long. Use a more targeted query or a smaller range to get the information you need.

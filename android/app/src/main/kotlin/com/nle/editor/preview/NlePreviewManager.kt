@@ -1,0 +1,107 @@
+package com.nle.editor.preview
+
+import io.flutter.view.TextureRegistry
+import com.nle.editor.scopes.NleScopeManager
+
+class NlePreviewManager(
+    textureRegistry: TextureRegistry,
+    private val events: NlePreviewEventSink,
+    val scopeManager: NleScopeManager? = null,
+    val monitorId: String
+) {
+    private val renderer = NleTrueDecoderPreviewRenderer(textureRegistry, monitorId)
+    private val scheduler = NlePreviewFrameScheduler(
+        renderer = renderer,
+        events = events,
+    )
+
+    init {
+        renderer.eventSink = events
+        renderer.scopeManager = scopeManager
+    }
+
+    fun prepare(
+        config: NlePreviewConfig,
+    ) {
+        try {
+            val textureId = renderer.prepareFlutterSurface(config)
+            val size = renderer.outputSize()
+
+            events.onPreviewTextureReady(
+                textureId = textureId,
+                width = size.width,
+                height = size.height,
+            )
+
+            scheduler.runOnRenderThreadBlocking {
+                renderer.prepareDecoderPipeline(config)
+            }
+
+            val initialFrame = scheduler.runOnRenderThreadBlocking {
+                renderer.renderFrame(0L)
+            }
+            if (initialFrame.rendered) {
+                events.onPreviewFrameRendered(initialFrame.timelineTimeUs)
+            } else {
+                events.onPreviewDroppedFrame(
+                    timelineTimeUs = initialFrame.timelineTimeUs,
+                    reason = initialFrame.reason ?: "Initial preview frame did not render.",
+                )
+            }
+        } catch (error: Throwable) {
+            events.onPreviewError(error.message ?: error.toString())
+        }
+    }
+
+    fun updateRenderGraph(
+        renderGraphJson: String,
+        preferProxy: Boolean = true,
+    ) {
+        try {
+            scheduler.runOnRenderThread {
+                renderer.updateRenderGraph(
+                    renderGraphJson = renderGraphJson,
+                    preferProxy = preferProxy,
+                )
+            }
+        } catch (error: Throwable) {
+            events.onPreviewError(error.message ?: error.toString())
+        }
+    }
+
+    fun renderFrame(
+        timelineTimeUs: Long,
+    ) {
+        scheduler.seekAndRender(timelineTimeUs)
+    }
+
+    fun play(
+        fromTimelineUs: Long,
+    ) {
+        scheduler.play(fromTimelineUs)
+    }
+
+    fun pause() {
+        scheduler.pause()
+    }
+
+    fun stop() {
+        scheduler.stop()
+    }
+
+    fun release() {
+        try {
+            scheduler.runOnRenderThreadBlocking {
+                scheduler.pause()
+                renderer.release()
+            }
+        } catch (_: Throwable) {
+            try { renderer.release() } catch (_: Throwable) {}
+        }
+        scheduler.release()
+    }
+
+    fun currentGraph(): com.nle.editor.rendergraph.NleRenderGraph? {
+        return renderer.currentGraph()
+    }
+}

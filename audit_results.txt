@@ -1,0 +1,7 @@
+Project Audit Results
+=====================
+
+Services: ['app_permission_service.dart', 'app_settings_service.dart', 'autosave_throttle_service.dart', 'cache_storage_service.dart', 'debug_log_service.dart', 'device_capability_profiler_service.dart', 'device_profile_store_service.dart', 'engine_health_service.dart', 'error_reporting_service.dart', 'export_readiness_checker.dart', 'interrupted_job_recovery_service.dart', 'keyframe_command_service.dart', 'media_import_service.dart', 'media_metadata_service.dart', 'missing_media_service.dart', 'native_export_service.dart', 'native_proxy_generation_service.dart', 'performance_recommendation_service.dart', 'project_autosave_service.dart', 'project_repair_service.dart', 'project_service.dart', 'project_session_service.dart', 'project_storage_service.dart', 'proxy_generation_service.dart', 'recovery_snapshot_detector.dart', 'render_graph_validation_service.dart', 'resume_project_safety_check_service.dart', 'temporary_export_service.dart', 'text_style_command_service.dart', 'thumbnail_service.dart', 'timeline_command_service.dart', 'transition_command_service.dart', 'waveform_service.dart']
+Has ThumbnailService: True
+Has WaveformService: True
+Has WaveformPlaceholder: True

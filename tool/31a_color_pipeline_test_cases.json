@@ -1,0 +1,234 @@
+{
+  "testCases": [
+    {
+      "name": "neutral_profile",
+      "description": "Standard Rec.709 project with neutral grading configurations. Must pass local checks.",
+      "graph": {
+        "schema": "nle.render_graph",
+        "version": 2,
+        "source": "cli_test",
+        "project": {
+          "id": "proj_neutral",
+          "name": "Neutral QA Test",
+          "durationMicros": 10000000,
+          "width": 1920,
+          "height": 1080,
+          "frameRate": 30.0,
+          "aspectRatio": "16:9",
+          "backgroundColor": "#000000"
+        },
+        "assets": [],
+        "tracks": [
+          {
+            "id": "track_1",
+            "name": "Video Track 1",
+            "type": "video",
+            "trackType": "video",
+            "role": "main",
+            "trackRole": "video",
+            "sortOrder": 0,
+            "isMuted": false,
+            "isSolo": false,
+            "isLocked": false,
+            "isHidden": false,
+            "height": 100.0,
+            "colorHex": "#2196F3",
+            "isVisual": true,
+            "isAudio": false,
+            "layerOrder": 1,
+            "clips": []
+          }
+        ],
+        "composition": {
+          "visualTrackIdsBottomToTop": ["track_1"],
+          "enabledVisualTrackIdsBottomToTop": ["track_1"],
+          "audioTrackIds": [],
+          "enabledAudioTrackIds": [],
+          "hasSoloAudio": false,
+          "hasHiddenTracks": false,
+          "visualLayerCount": 1,
+          "audioLayerCount": 0
+        },
+        "audioMix": {
+          "enabled": true,
+          "hasSoloAudio": false,
+          "soloAudioTrackIds": [],
+          "mutedAudioTrackIds": [],
+          "activeAudioTrackIds": [],
+          "sampleRate": 48000,
+          "channels": 2
+        },
+        "exportHints": {
+          "useProxyForPreview": false,
+          "useOriginalForExport": true,
+          "requiresGpuCompositor": true,
+          "containsText": false,
+          "containsImage": false,
+          "containsVideo": false,
+          "containsAudio": false,
+          "containsAdjustment": false,
+          "containsColorAdjustments": false,
+          "containsCrop": false,
+          "containsSpeedChanges": false,
+          "containsFades": false,
+          "containsLut": false,
+          "containsPrimaryGrades": false,
+          "containsColorCurves": false,
+          "containsSecondaryGrades": false,
+          "containsFilmLooks": false,
+          "outputMode": "rec709Sdr",
+          "isHdrOutput": false,
+          "isWideColorOutput": false,
+          "requiresTenBit": false
+        },
+        "colorPipeline": {
+          "enabled": true,
+          "quality": "high",
+          "defaultInput": {},
+          "working": {},
+          "previewOutput": {},
+          "exportOutput": {},
+          "forceCompatibilityMode": false,
+          "previewMatchesExport": true,
+          "assetInputTransforms": {}
+        },
+        "metadata": {}
+      }
+    },
+    {
+      "name": "incorrect_gpu_order",
+      "description": "Simulates a pipeline sequence where color curves are processed before primary grades.",
+      "graph": {
+        "schema": "nle.render_graph",
+        "version": 2,
+        "source": "cli_test",
+        "project": {
+          "id": "proj_bad_order",
+          "name": "Bad Order QA Test",
+          "durationMicros": 10000000,
+          "width": 1920,
+          "height": 1080,
+          "frameRate": 30.0,
+          "aspectRatio": "16:9",
+          "backgroundColor": "#000000"
+        },
+        "assets": [],
+        "tracks": [],
+        "composition": {
+          "visualTrackIdsBottomToTop": [],
+          "enabledVisualTrackIdsBottomToTop": [],
+          "audioTrackIds": [],
+          "enabledAudioTrackIds": [],
+          "hasSoloAudio": false,
+          "hasHiddenTracks": false,
+          "visualLayerCount": 0,
+          "audioLayerCount": 0
+        },
+        "audioMix": {
+          "enabled": true,
+          "hasSoloAudio": false,
+          "soloAudioTrackIds": [],
+          "mutedAudioTrackIds": [],
+          "activeAudioTrackIds": [],
+          "sampleRate": 48000,
+          "channels": 2
+        },
+        "exportHints": {
+          "useProxyForPreview": false,
+          "useOriginalForExport": true,
+          "requiresGpuCompositor": true,
+          "containsText": false,
+          "containsImage": false,
+          "containsVideo": false,
+          "containsAudio": false,
+          "containsAdjustment": false,
+          "containsColorAdjustments": true,
+          "containsCrop": false,
+          "containsSpeedChanges": false,
+          "containsFades": false,
+          "containsLut": false,
+          "containsPrimaryGrades": true,
+          "containsColorCurves": true,
+          "containsSecondaryGrades": false,
+          "containsFilmLooks": false,
+          "outputMode": "rec709Sdr",
+          "isHdrOutput": false,
+          "isWideColorOutput": false,
+          "requiresTenBit": false
+        },
+        "metadata": {
+          "simulatedPassIds": [
+            "input_to_scene_linear",
+            "color_curves",
+            "primary_grade",
+            "output_display_transform"
+          ]
+        }
+      }
+    },
+    {
+      "name": "unsupported_hdr",
+      "description": "Simulates an HDR request without output configurations. Must trigger blockers.",
+      "graph": {
+        "schema": "nle.render_graph",
+        "version": 2,
+        "source": "cli_test",
+        "project": {
+          "id": "proj_unsupported_hdr",
+          "name": "Unsupported HDR QA Test",
+          "durationMicros": 10000000,
+          "width": 1920,
+          "height": 1080,
+          "frameRate": 30.0,
+          "aspectRatio": "16:9",
+          "backgroundColor": "#000000"
+        },
+        "assets": [],
+        "tracks": [],
+        "composition": {
+          "visualTrackIdsBottomToTop": [],
+          "enabledVisualTrackIdsBottomToTop": [],
+          "audioTrackIds": [],
+          "enabledAudioTrackIds": [],
+          "hasSoloAudio": false,
+          "hasHiddenTracks": false,
+          "visualLayerCount": 0,
+          "audioLayerCount": 0
+        },
+        "audioMix": {
+          "enabled": true,
+          "hasSoloAudio": false,
+          "soloAudioTrackIds": [],
+          "mutedAudioTrackIds": [],
+          "activeAudioTrackIds": [],
+          "sampleRate": 48000,
+          "channels": 2
+        },
+        "exportHints": {
+          "useProxyForPreview": false,
+          "useOriginalForExport": true,
+          "requiresGpuCompositor": true,
+          "containsText": false,
+          "containsImage": false,
+          "containsVideo": false,
+          "containsAudio": false,
+          "containsAdjustment": false,
+          "containsColorAdjustments": false,
+          "containsCrop": false,
+          "containsSpeedChanges": false,
+          "containsFades": false,
+          "containsLut": false,
+          "containsPrimaryGrades": false,
+          "containsColorCurves": false,
+          "containsSecondaryGrades": false,
+          "containsFilmLooks": false,
+          "outputMode": "rec2020HlgHdr",
+          "isHdrOutput": true,
+          "isWideColorOutput": true,
+          "requiresTenBit": true
+        },
+        "metadata": {}
+      }
+    }
+  ]
+}

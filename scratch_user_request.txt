@@ -1,0 +1,121 @@
+<USER_REQUEST>
+// ============================================================================
+// STEP 22: POLISH / STABILIZATION / QA
+// ============================================================================
+//
+// Adds:
+//
+// - App-wide diagnostics screen
+// - Native engine health checker
+// - Render graph validator UI
+// - Export readiness checker
+// - Project repair tools
+// - Missing media reconnect flow
+// - Failed export/proxy job recovery panel
+// - Storage warning banner
+// - Permission warning banner
+// - Debug logs viewer
+// - QA checklist screen
+//
+// This step makes the editor safer before adding more premium features.
+//
+// ============================================================================
+
+
+// ============================================================================
+// 1. TIMELINE ISSUE MODEL
+// ============================================================================
+
+
+// ==================== lib/domain/diagnostics/timeline_issue.dart ====================
+
+class TimelineIssueSeverity {
+  TimelineIssueSeverity._();
+
+  static const String info = 'info';
+  static const String warning = 'warning';
+  static const String error = 'error';
+  static const String critical = 'critical';
+}
+
+class TimelineIssueCategory {
+  TimelineIssueCategory._();
+
+  static const String project = 'project';
+  static const String media = 'media';
+  static const String timeline = 'timeline';
+  static const String renderGraph = 'render_graph';
+  static const String transition = 'transition';
+  static const String text = 'text';
+  static const String audio = 'audio';
+  static const String export = 'export';
+  static const String storage = 'storage';
+  static const String permission = 'permission';
+  static const String nativeEngine = 'native_engine';
+}
+
+class TimelineIssueActionId {
+  TimelineIssueActionId._();
+
+  static const String reconnectMedia = 'reconnect_media';
+  static const String removeClip = 'remove_clip';
+  static const String repairTiming = 'repair_timing';
+  static const String generateProxy =
+<truncated 45215 bytes>
+ration: BoxDecoration(
+        color: AppTheme.surface,
+        borderRadius: BorderRadius.circular(AppTheme.borderRadiusLarge),
+        border: Border.all(color: AppTheme.borderSubtle),
+      ),
+      padding: const EdgeInsets.all(14),
+      child: report.when(
+        data: (data) {
+          if (data.issues.isEmpty) {
+            return const Row(
+              children: [
+                Icon(Icons.check_circle_rounded, color: AppTheme.success),
+                SizedBox(width: 10),
+                Expanded(
+                  child: Text(
+                    'Timeline validation passed.',
+                    style: TextStyle(
+                      color: AppTheme.textPrimary,
+                      fontWeight: FontWeight.w800,
+                    ),
+                  ),
+                ),
+              ],
+            );
+          }
+
+          return Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                children: [
+                  const Icon(Icons.rule_rounded, color: AppTheme.warning),
+                  const SizedBox(width: 8),
+                  const Expanded(
+                    child: Text(
+                      'Timeline Issues',
+                      style: TextStyle(
+                        color: AppTheme.textPrimary,
+                        fontWeight: FontWeight.w900,
+                      ),
+                    ),
+                  ),
+                  Text(
+                    '${data.errorCount} errors • ${data.warningCount} warnings',
+                    style: const TextStyle(
+                      color: AppTheme.textMuted,
+                      fontSize: 11,
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 12),
+              ...data.issues.take(8).map(
+                    (issue) => _IssueTile(issu
+<truncated 34477 bytes>
+
+NOTE: The output was truncated because it was too long. Use a more targeted query or a smaller range to get the information you need.
