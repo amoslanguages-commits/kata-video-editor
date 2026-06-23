@@ -71,6 +71,64 @@ class TimelineEditCommandController {
     return result;
   }
 
+  Future<TimelineEditResult> duplicate({
+    required String clipId,
+    int offsetMicros = 100000,
+    TimelineEditOptions options = const TimelineEditOptions(),
+  }) async {
+    final result = await engine.duplicateClip(
+      clipId: clipId,
+      offsetMicros: offsetMicros,
+      options: options,
+    );
+    await _refresh('timeline_duplicate_clip');
+    return result;
+  }
+
+  Future<TimelineEditResult> slip({
+    required String clipId,
+    required int deltaMicros,
+    TimelineEditOptions options = const TimelineEditOptions(),
+  }) async {
+    final result = await engine.slipClip(
+      clipId: clipId,
+      deltaMicros: deltaMicros,
+      options: options,
+    );
+    await _refresh('timeline_slip_clip');
+    return result;
+  }
+
+  Future<TimelineEditResult> slide({
+    required String clipId,
+    required int deltaMicros,
+    TimelineEditOptions options = const TimelineEditOptions(),
+  }) async {
+    final result = await engine.slideClip(
+      clipId: clipId,
+      deltaMicros: deltaMicros,
+      options: options,
+    );
+    await _refresh('timeline_slide_clip');
+    return result;
+  }
+
+  Future<TimelineEditResult> roll({
+    required String leftClipId,
+    required String rightClipId,
+    required int deltaMicros,
+    TimelineEditOptions options = const TimelineEditOptions(),
+  }) async {
+    final result = await engine.rollEdit(
+      leftClipId: leftClipId,
+      rightClipId: rightClipId,
+      deltaMicros: deltaMicros,
+      options: options,
+    );
+    await _refresh('timeline_roll_edit');
+    return result;
+  }
+
   Future<TimelineEditResult> rippleDelete({
     required String clipId,
     TimelineEditOptions options = const TimelineEditOptions(ripple: true),
