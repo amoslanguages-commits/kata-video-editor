@@ -14,6 +14,8 @@ class TimelineRepository {
   Future<List<Track>> getProjectTracks(String projectId) =>
       _db.getProjectTracks(projectId);
 
+  Future<Track> getTrack(String trackId) => _db.getTrack(trackId);
+
   Future<Track?> getFirstTrackByType(String projectId, String type) =>
       _db.getFirstTrackByType(projectId, type);
 
