@@ -13,6 +13,9 @@ import 'package:nle_editor/presentation/providers/editor_providers.dart';
 import 'package:nle_editor/presentation/providers/export_pipeline_providers.dart';
 import 'package:nle_editor/presentation/widgets/export/export_completion_summary_sheet.dart';
 
+final _exportStatusFilterProvider =
+    StateProvider.family<String, String>((ref, projectId) => 'all');
+
 class ExportPipelinePanel extends ConsumerWidget {
   final String projectId;
 
@@ -25,6 +28,7 @@ class ExportPipelinePanel extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final jobsAsync = ref.watch(projectExportJobsProvider(projectId));
     final summary = ref.watch(projectExportQueueSummaryProvider(projectId));
+    final filter = ref.watch(_exportStatusFilterProvider(projectId));
 
     return Container(
       color: AppTheme.editorBackground,
@@ -36,27 +40,38 @@ class ExportPipelinePanel extends ConsumerWidget {
         data: (jobs) {
           final sortedJobs = [...jobs]
             ..sort((a, b) => b.createdAt.compareTo(a.createdAt));
+          final visibleJobs = sortedJobs
+              .where((job) => _matchesStatusFilter(job.status, filter))
+              .toList(growable: false);
 
           return Column(
             children: [
-              _ExportHeader(summary: summary),
+              _ExportHeader(
+                summary: summary,
+                filter: filter,
+                onFilterChanged: (value) => ref
+                    .read(_exportStatusFilterProvider(projectId).notifier)
+                    .state = value,
+              ),
               Expanded(
                 child: sortedJobs.isEmpty
                     ? const _EmptyExports(
                         message:
                             'No export jobs yet. Completed, running, and failed renders will appear here.',
                       )
-                    : ListView.separated(
-                        padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
-                        itemCount: sortedJobs.length,
-                        separatorBuilder: (_, __) => const SizedBox(height: 10),
-                        itemBuilder: (context, index) {
-                          return _ExportJobTile(
-                            projectId: projectId,
-                            job: sortedJobs[index],
-                          );
-                        },
-                      ),
+                    : visibleJobs.isEmpty
+                        ? const _EmptyExports(message: 'No exports match this filter.')
+                        : ListView.separated(
+                            padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
+                            itemCount: visibleJobs.length,
+                            separatorBuilder: (_, __) => const SizedBox(height: 10),
+                            itemBuilder: (context, index) {
+                              return _ExportJobTile(
+                                projectId: projectId,
+                                job: visibleJobs[index],
+                              );
+                            },
+                          ),
               ),
             ],
           );
@@ -64,12 +79,36 @@ class ExportPipelinePanel extends ConsumerWidget {
       ),
     );
   }
+
+  bool _matchesStatusFilter(String status, String filter) {
+    final normalized = status.toLowerCase();
+    if (filter == 'all') return true;
+    if (filter == 'active') {
+      return normalized == 'running' || normalized == 'pending' || normalized == 'queued';
+    }
+    if (filter == 'done') {
+      return normalized == 'completed' || normalized == 'done' || normalized == 'success';
+    }
+    if (filter == 'failed') {
+      return normalized == 'failed' || normalized == 'error';
+    }
+    if (filter == 'cancelled') {
+      return normalized == 'cancelled' || normalized == 'canceled';
+    }
+    return true;
+  }
 }
 
 class _ExportHeader extends StatelessWidget {
   final NleExportQueueSummary summary;
+  final String filter;
+  final ValueChanged<String> onFilterChanged;
 
-  const _ExportHeader({required this.summary});
+  const _ExportHeader({
+    required this.summary,
+    required this.filter,
+    required this.onFilterChanged,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -109,8 +148,46 @@ class _ExportHeader extends StatelessWidget {
               _Metric(label: 'Failed', value: summary.failedJobs),
             ],
           ),
+          const SizedBox(height: 10),
+          Wrap(
+            spacing: 8,
+            runSpacing: 6,
+            children: [
+              _FilterChip(label: 'All', value: 'all', selected: filter, onSelected: onFilterChanged),
+              _FilterChip(label: 'Active', value: 'active', selected: filter, onSelected: onFilterChanged),
+              _FilterChip(label: 'Done', value: 'done', selected: filter, onSelected: onFilterChanged),
+              _FilterChip(label: 'Failed', value: 'failed', selected: filter, onSelected: onFilterChanged),
+              _FilterChip(label: 'Cancelled', value: 'cancelled', selected: filter, onSelected: onFilterChanged),
+            ],
+          ),
         ],
       ),
+    );
+  }
+}
+
+class _FilterChip extends StatelessWidget {
+  final String label;
+  final String value;
+  final String selected;
+  final ValueChanged<String> onSelected;
+
+  const _FilterChip({
+    required this.label,
+    required this.value,
+    required this.selected,
+    required this.onSelected,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final active = selected == value;
+    return ChoiceChip(
+      label: Text(label),
+      selected: active,
+      onSelected: (_) => onSelected(value),
+      selectedColor: AppTheme.accentPrimary.withOpacity(0.22),
+      labelStyle: TextStyle(color: active ? AppTheme.accentPrimary : AppTheme.textSecondary),
     );
   }
 }
@@ -194,17 +271,11 @@ class _ExportJobTile extends ConsumerWidget {
                   ),
                 ),
               ),
-              Text(
-                job.status,
-                style: TextStyle(color: color, fontSize: 12),
-              ),
+              Text(job.status, style: TextStyle(color: color, fontSize: 12)),
             ],
           ),
           const SizedBox(height: 8),
-          Text(
-            job.stage,
-            style: const TextStyle(color: AppTheme.textSecondary, fontSize: 12),
-          ),
+          Text(job.stage, style: const TextStyle(color: AppTheme.textSecondary, fontSize: 12)),
           const SizedBox(height: 10),
           ClipRRect(
             borderRadius: BorderRadius.circular(999),
@@ -216,10 +287,7 @@ class _ExportJobTile extends ConsumerWidget {
             ),
           ),
           const SizedBox(height: 8),
-          Text(
-            '${job.progress.clamp(0, 100)}% complete',
-            style: const TextStyle(color: AppTheme.textMuted, fontSize: 11),
-          ),
+          Text('${job.progress.clamp(0, 100)}% complete', style: const TextStyle(color: AppTheme.textMuted, fontSize: 11)),
           if (hasOutput) ...[
             const SizedBox(height: 8),
             Text(
@@ -237,6 +305,8 @@ class _ExportJobTile extends ConsumerWidget {
               overflow: TextOverflow.ellipsis,
               style: const TextStyle(color: AppTheme.error, fontSize: 12),
             ),
+            const SizedBox(height: 6),
+            _ErrorSuggestion(message: job.errorMessage!),
           ],
           const SizedBox(height: 10),
           Wrap(
@@ -249,12 +319,20 @@ class _ExportJobTile extends ConsumerWidget {
                 icon: const Icon(Icons.info_outline_rounded, size: 16),
                 label: const Text('Details'),
               ),
+              TextButton.icon(
+                onPressed: () => _showLogs(context, viewModel),
+                icon: const Icon(Icons.receipt_long_rounded, size: 16),
+                label: const Text('Logs'),
+              ),
+              if (viewModel.isActive)
+                TextButton.icon(
+                  onPressed: () => _cancelExport(context, ref, job.id),
+                  icon: const Icon(Icons.stop_circle_rounded, size: 16),
+                  label: const Text('Cancel'),
+                ),
               if (viewModel.isCompleted)
                 TextButton.icon(
-                  onPressed: () => showExportCompletionSummary(
-                    context: context,
-                    viewModel: viewModel,
-                  ),
+                  onPressed: () => showExportCompletionSummary(context: context, viewModel: viewModel),
                   icon: const Icon(Icons.fact_check_rounded, size: 16),
                   label: const Text('Summary'),
                 ),
@@ -287,9 +365,7 @@ class _ExportJobTile extends ConsumerWidget {
     try {
       final decoded = jsonDecode(raw);
       if (decoded is Map<String, dynamic>) return decoded;
-      if (decoded is Map) {
-        return decoded.map((key, value) => MapEntry(key.toString(), value));
-      }
+      if (decoded is Map) return decoded.map((key, value) => MapEntry(key.toString(), value));
     } catch (_) {}
     return const <String, dynamic>{};
   }
@@ -297,9 +373,7 @@ class _ExportJobTile extends ConsumerWidget {
   Future<void> _copyOutputPath(BuildContext context, String outputPath) async {
     await Clipboard.setData(ClipboardData(text: outputPath));
     if (context.mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Export output path copied.')),
-      );
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Export output path copied.')));
     }
   }
 
@@ -307,150 +381,134 @@ class _ExportJobTile extends ConsumerWidget {
     final file = File(outputPath);
     if (!file.existsSync()) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Export file is no longer available.'),
-          backgroundColor: AppTheme.error,
-        ),
+        const SnackBar(content: Text('Export file is no longer available.'), backgroundColor: AppTheme.error),
       );
       return;
     }
-
-    await Share.shareXFiles(
-      [XFile(outputPath)],
-      text: 'Exported from Kata Video Editor',
-    );
+    await Share.shareXFiles([XFile(outputPath)], text: 'Exported from Kata Video Editor');
   }
 
-  Future<void> _retryExport(
-    BuildContext context,
-    WidgetRef ref,
-    Map<String, dynamic> settings,
-  ) async {
+  Future<void> _cancelExport(BuildContext context, WidgetRef ref, String jobId) async {
     try {
-      await ref.read(nativeExportServiceProvider).startExport(
-            projectId: projectId,
-            settings: settings,
-          );
+      await ref.read(nativeExportServiceProvider).cancelExport(jobId: jobId);
       if (context.mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Retry export started.')),
-        );
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Cancel requested.')));
       }
     } catch (error) {
       if (context.mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Retry failed: $error'),
-            backgroundColor: AppTheme.error,
-          ),
-        );
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Cancel failed: $error'), backgroundColor: AppTheme.error));
       }
     }
+  }
+
+  Future<void> _retryExport(BuildContext context, WidgetRef ref, Map<String, dynamic> settings) async {
+    try {
+      await ref.read(nativeExportServiceProvider).startExport(projectId: projectId, settings: settings);
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Retry export started.')));
+      }
+    } catch (error) {
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Retry failed: $error'), backgroundColor: AppTheme.error));
+      }
+    }
+  }
+
+  void _showLogs(BuildContext context, NleExportJobViewModel viewModel) {
+    final job = viewModel.job;
+    final text = const JsonEncoder.withIndent('  ').convert({
+      'jobId': job.id,
+      'status': job.status,
+      'stage': job.stage,
+      'progress': job.progress,
+      'outputPath': job.outputPath,
+      'error': job.errorMessage,
+      'settings': viewModel.settings,
+    });
+    _showTextSheet(context, 'Export Logs', text);
   }
 
   void _showDetails(BuildContext context, NleExportJobViewModel viewModel) {
     final job = viewModel.job;
     final settingsText = const JsonEncoder.withIndent('  ').convert(viewModel.settings);
+    _showTextSheet(
+      context,
+      'Export Job Details',
+      'Status: ${job.status}\nStage: ${job.stage}\nProgress: ${job.progress.clamp(0, 100)}%\nPreset: ${viewModel.presetName}\nResolution: ${viewModel.resolutionLabel}\nBitrate: ${viewModel.bitrateLabel}\nOutput: ${job.outputPath ?? 'none'}\nError: ${job.errorMessage ?? 'none'}\n\nSettings JSON\n$settingsText',
+    );
+  }
 
+  void _showTextSheet(BuildContext context, String title, String text) {
     showModalBottomSheet(
       context: context,
       backgroundColor: AppTheme.surfaceDark,
       isScrollControlled: true,
-      builder: (context) {
-        return SafeArea(
-          child: Padding(
-            padding: const EdgeInsets.all(16),
-            child: SingleChildScrollView(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  const Row(
-                    children: [
-                      Icon(Icons.info_outline_rounded, color: AppTheme.accentPrimary),
-                      SizedBox(width: 10),
-                      Text(
-                        'Export Job Details',
-                        style: TextStyle(
-                          color: AppTheme.textPrimary,
-                          fontSize: 18,
-                          fontWeight: FontWeight.w700,
-                        ),
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 16),
-                  _DetailRow(label: 'Status', value: job.status),
-                  _DetailRow(label: 'Stage', value: job.stage),
-                  _DetailRow(label: 'Progress', value: '${job.progress.clamp(0, 100)}%'),
-                  _DetailRow(label: 'Preset', value: viewModel.presetName),
-                  _DetailRow(label: 'Resolution', value: viewModel.resolutionLabel),
-                  _DetailRow(label: 'Bitrate', value: viewModel.bitrateLabel),
-                  if (job.outputPath != null && job.outputPath!.isNotEmpty)
-                    _DetailRow(label: 'Output', value: job.outputPath!),
-                  if (job.errorMessage != null && job.errorMessage!.isNotEmpty)
-                    _DetailRow(label: 'Error', value: job.errorMessage!),
-                  const SizedBox(height: 12),
-                  const Text(
-                    'Settings JSON',
-                    style: TextStyle(
-                      color: AppTheme.textPrimary,
-                      fontWeight: FontWeight.w700,
-                    ),
-                  ),
-                  const SizedBox(height: 6),
-                  Container(
-                    width: double.infinity,
-                    padding: const EdgeInsets.all(12),
-                    decoration: BoxDecoration(
-                      color: AppTheme.editorBackground,
-                      borderRadius: BorderRadius.circular(10),
-                      border: Border.all(color: AppTheme.borderSubtle),
-                    ),
-                    child: Text(
-                      settingsText,
-                      style: const TextStyle(
-                        color: AppTheme.textSecondary,
-                        fontSize: 12,
-                        fontFamily: 'monospace',
-                      ),
-                    ),
-                  ),
-                ],
-              ),
+      builder: (context) => SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.all(16),
+          child: SingleChildScrollView(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text(title, style: const TextStyle(color: AppTheme.textPrimary, fontSize: 18, fontWeight: FontWeight.w700)),
+                const SizedBox(height: 12),
+                SelectableText(text, style: const TextStyle(color: AppTheme.textSecondary, fontSize: 12, fontFamily: 'monospace')),
+              ],
             ),
           ),
-        );
-      },
+        ),
+      ),
     );
   }
 
   Color _statusColor(String status) {
     final normalized = status.toLowerCase();
-    if (normalized == 'completed' || normalized == 'done' || normalized == 'success') {
-      return AppTheme.success;
-    }
-    if (normalized == 'failed' || normalized == 'error') {
-      return AppTheme.error;
-    }
-    if (normalized == 'cancelled' || normalized == 'canceled') {
-      return AppTheme.warning;
-    }
+    if (normalized == 'completed' || normalized == 'done' || normalized == 'success') return AppTheme.success;
+    if (normalized == 'failed' || normalized == 'error') return AppTheme.error;
+    if (normalized == 'cancelled' || normalized == 'canceled') return AppTheme.warning;
     return AppTheme.accentPrimary;
   }
 
   IconData _statusIcon(String status) {
     final normalized = status.toLowerCase();
-    if (normalized == 'completed' || normalized == 'done' || normalized == 'success') {
-      return Icons.check_circle_rounded;
-    }
-    if (normalized == 'failed' || normalized == 'error') {
-      return Icons.error_rounded;
-    }
-    if (normalized == 'cancelled' || normalized == 'canceled') {
-      return Icons.cancel_rounded;
-    }
+    if (normalized == 'completed' || normalized == 'done' || normalized == 'success') return Icons.check_circle_rounded;
+    if (normalized == 'failed' || normalized == 'error') return Icons.error_rounded;
+    if (normalized == 'cancelled' || normalized == 'canceled') return Icons.cancel_rounded;
     return Icons.autorenew_rounded;
+  }
+}
+
+class _ErrorSuggestion extends StatelessWidget {
+  final String message;
+
+  const _ErrorSuggestion({required this.message});
+
+  @override
+  Widget build(BuildContext context) {
+    final suggestion = _suggestionFor(message);
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(10),
+      decoration: BoxDecoration(color: AppTheme.surfaceElevated, borderRadius: BorderRadius.circular(10)),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Icon(Icons.lightbulb_outline_rounded, color: AppTheme.warning, size: 16),
+          const SizedBox(width: 8),
+          Expanded(child: Text(suggestion, style: const TextStyle(color: AppTheme.textSecondary, fontSize: 11))),
+        ],
+      ),
+    );
+  }
+
+  String _suggestionFor(String raw) {
+    final value = raw.toLowerCase();
+    if (value.contains('missing')) return 'A source media file may be missing. Relink media or remove the missing clip, then retry.';
+    if (value.contains('space') || value.contains('storage')) return 'Free device storage or lower the export resolution/bitrate, then retry.';
+    if (value.contains('permission')) return 'Check storage/gallery permissions and try again.';
+    if (value.contains('codec') || value.contains('encoder')) return 'Try H.264 MP4, lower bitrate, or reduce resolution for this device.';
+    return 'Open logs, check the error message, then retry with a lower preset or simpler timeline.';
   }
 }
 
@@ -467,19 +525,8 @@ class _DetailRow extends StatelessWidget {
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          SizedBox(
-            width: 88,
-            child: Text(
-              label,
-              style: const TextStyle(color: AppTheme.textMuted, fontSize: 12),
-            ),
-          ),
-          Expanded(
-            child: Text(
-              value,
-              style: const TextStyle(color: AppTheme.textSecondary, fontSize: 12),
-            ),
-          ),
+          SizedBox(width: 88, child: Text(label, style: const TextStyle(color: AppTheme.textMuted, fontSize: 12))),
+          Expanded(child: Text(value, style: const TextStyle(color: AppTheme.textSecondary, fontSize: 12))),
         ],
       ),
     );
@@ -501,20 +548,9 @@ class _EmptyExports extends StatelessWidget {
           children: [
             const Icon(Icons.ios_share_rounded, size: 44, color: AppTheme.textMuted),
             const SizedBox(height: 12),
-            const Text(
-              'Export History',
-              style: TextStyle(
-                color: AppTheme.textPrimary,
-                fontSize: 16,
-                fontWeight: FontWeight.w700,
-              ),
-            ),
+            const Text('Export History', style: TextStyle(color: AppTheme.textPrimary, fontSize: 16, fontWeight: FontWeight.w700)),
             const SizedBox(height: 6),
-            Text(
-              message,
-              textAlign: TextAlign.center,
-              style: const TextStyle(color: AppTheme.textSecondary, fontSize: 12),
-            ),
+            Text(message, textAlign: TextAlign.center, style: const TextStyle(color: AppTheme.textSecondary, fontSize: 12)),
           ],
         ),
       ),
