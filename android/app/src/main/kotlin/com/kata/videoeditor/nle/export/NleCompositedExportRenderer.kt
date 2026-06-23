@@ -6,9 +6,9 @@ import android.media.MediaExtractor
 import android.media.MediaFormat
 import android.media.MediaMuxer
 import com.kata.videoeditor.nle.NleContextHolder
+import com.nle.editor.color.NleColorPipelineFallbackResolver
+import com.nle.editor.color.NleColorPipelineParser
 import com.nle.editor.color.NleDeviceColorCapabilityScanner
-import com.nle.editor.colorpipeline.NleColorPipelineFallbackResolver
-import com.nle.editor.colorpipeline.NleColorPipelineParser
 import com.nle.editor.colorpipeline.NleGpuPipelineMode
 import com.nle.editor.compositor.NleDefaultLayerTextureProvider
 import com.nle.editor.compositor.NleMultilayerCompositor
