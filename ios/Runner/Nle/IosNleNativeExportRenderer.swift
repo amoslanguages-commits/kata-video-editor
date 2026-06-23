@@ -12,24 +12,13 @@ final class IosNleNativeExportRenderer {
         self.compositedRenderer = IosNleCompositedExportRenderer(eventEmitter: eventEmitter)
     }
 
-    func start(
-        projectId: String,
-        jobId: String,
-        renderGraphJson: String,
-        outputPath: String
-    ) throws -> [String: Any?] {
+    func start(projectId: String, jobId: String, renderGraphJson: String, outputPath: String) throws -> [String: Any?] {
         if requiresCompositedExport(renderGraphJson) {
-            return try compositedRenderer.start(
-                projectId: projectId,
-                jobId: jobId,
-                renderGraphJson: renderGraphJson,
-                outputPath: outputPath
-            )
+            return try compositedRenderer.start(projectId: projectId, jobId: jobId, renderGraphJson: renderGraphJson, outputPath: outputPath)
         }
 
         let job = try parseSingleClipJob(projectId: projectId, renderGraphJson: renderGraphJson, outputPath: outputPath)
-
-        emit(jobId: jobId, projectId: projectId, type: IosNleEventType.exportStarted, payload: ["stage": "Preparing", "progress": NSNumber(value: 0)])
+        emit(jobId: jobId, projectId: projectId, type: IosNleEventType.exportStarted, payload: ["stage": "Preparing", "progress": NSNumber(value: 0), "preferProxy": NSNumber(value: job.preferProxy)])
 
         let composition = AVMutableComposition()
         let asset = AVAsset(url: job.assetUrl)
@@ -84,7 +73,7 @@ final class IosNleNativeExportRenderer {
                 self.emit(jobId: jobId, projectId: projectId, type: IosNleEventType.exportCompleted, payload: [
                     "stage": "Complete",
                     "progress": NSNumber(value: 100),
-                    "result": ["outputPath": outputPath, "fileSize": NSNumber(value: size), "renderer": "ios_avasset_export_session_v1"]
+                    "result": ["outputPath": outputPath, "fileSize": NSNumber(value: size), "renderer": "ios_avasset_export_session_v1", "preferProxy": NSNumber(value: job.preferProxy)]
                 ])
             case .cancelled:
                 self.emit(jobId: jobId, projectId: projectId, type: IosNleEventType.exportCancelled, payload: ["stage": "Cancelled"])
@@ -93,7 +82,7 @@ final class IosNleNativeExportRenderer {
             }
         }
 
-        return ["success": true, "jobId": jobId, "accepted": true, "nativeRenderer": "ios_avasset_export_session_v1"]
+        return ["success": true, "jobId": jobId, "accepted": true, "nativeRenderer": "ios_avasset_export_session_v1", "preferProxy": job.preferProxy]
     }
 
     func cancel(jobId: String) -> [String: Any?] {
@@ -138,6 +127,8 @@ final class IosNleNativeExportRenderer {
 
     private func parseSingleClipJob(projectId: String, renderGraphJson: String, outputPath: String) throws -> IosExportJobDescriptor {
         let root = try parseRoot(renderGraphJson)
+        let exportHints = root["exportHints"] as? [String: Any] ?? [:]
+        let preferProxy = !bool(exportHints["useOriginalForExport"])
         let assets = array(root["assets"])
         let tracks = array(root["tracks"])
         var clips = array(root["clips"])
@@ -158,14 +149,20 @@ final class IosNleNativeExportRenderer {
         guard let asset = assets.first(where: { string($0["id"]) == assetId }) else {
             throw NSError(domain: "IosNleNativeExportRenderer", code: 4, userInfo: [NSLocalizedDescriptionKey: "Export asset was not found."])
         }
-        let path = string(asset["exportPath"]) ?? string(asset["sourcePath"]) ?? string(asset["originalPath"]) ?? string(asset["path"]) ?? ""
+        let path = resolveAssetPath(asset, preferProxy: preferProxy)
         guard !path.isEmpty else {
             throw NSError(domain: "IosNleNativeExportRenderer", code: 5, userInfo: [NSLocalizedDescriptionKey: "Export asset path is missing."])
         }
         let sourceStart = int64(clip["sourceInMicros"]) ?? int64(clip["sourceStartMicros"]) ?? 0
         let fallbackEnd = sourceStart + ((int64(clip["timelineEndMicros"]) ?? 0) - (int64(clip["timelineStartMicros"]) ?? 0))
         let sourceEnd = max(sourceStart + 1, int64(clip["sourceOutMicros"]) ?? int64(clip["sourceEndMicros"]) ?? fallbackEnd)
-        return IosExportJobDescriptor(projectId: projectId, assetUrl: url(from: path), sourceStartMicros: sourceStart, sourceEndMicros: sourceEnd, outputPath: outputPath)
+        return IosExportJobDescriptor(projectId: projectId, assetUrl: url(from: path), sourceStartMicros: sourceStart, sourceEndMicros: sourceEnd, outputPath: outputPath, preferProxy: preferProxy)
+    }
+
+    private func resolveAssetPath(_ asset: [String: Any], preferProxy: Bool) -> String {
+        let proxy = string(asset["proxyPath"])
+        let original = string(asset["exportPath"]) ?? string(asset["sourcePath"]) ?? string(asset["originalPath"]) ?? string(asset["path"])
+        return preferProxy ? (proxy ?? original ?? "") : (original ?? proxy ?? "")
     }
 
     private func parseRoot(_ json: String) throws -> [String: Any] {
@@ -214,4 +211,5 @@ private struct IosExportJobDescriptor {
     let sourceStartMicros: Int64
     let sourceEndMicros: Int64
     let outputPath: String
+    let preferProxy: Bool
 }
