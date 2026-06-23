@@ -42,10 +42,10 @@ class NleCommandRouter(
     val syncQaRunner = NleAndroidSyncQaRunner()
 
     // 29E: device compatibility QA
-    private val deviceQaRunner          by lazy { NleDeviceCompatibilityQaRunner(context) }
+    private val deviceQaRunner            by lazy { NleDeviceCompatibilityQaRunner(context) }
     private val deviceCapabilityCollector by lazy { NleDeviceCapabilityCollector(context) }
-    private val memoryPressureProbe      by lazy { NleMemoryPressureProbe(context) }
-    private val exportRecoveryPolicy     = NleExportRecoveryPolicy()
+    private val memoryPressureProbe       by lazy { NleMemoryPressureProbe(context) }
+    private val exportRecoveryPolicy      = NleExportRecoveryPolicy()
 
     // 29F: dual preview manager (source + program monitors)
     private val dualPreviewManager by lazy {
@@ -107,7 +107,6 @@ class NleCommandRouter(
                     )
 
                 NleNativeCommandType.SEEK -> {
-                    // Accept timelineMicros (legacy) or positionMicros
                     val pos = args.requireLong("timelineMicros")
                         ?: args.requireLong("positionMicros")
                         ?: throw IllegalArgumentException(
@@ -168,6 +167,95 @@ class NleCommandRouter(
                         jobId      = args.requireString("jobId"),
                         commandId  = commandId
                     )
+
+                "pause_export_job" -> {
+                    eventEmitter.emit(
+                        NleNativeEvent(
+                            type = "export_paused",
+                            jobId = args["jobId"] as? String,
+                            commandId = commandId,
+                            payload = mapOf("stage" to "Paused")
+                        )
+                    )
+                    mapOf("accepted" to true)
+                }
+
+                "resume_export_job" -> {
+                    eventEmitter.emit(
+                        NleNativeEvent(
+                            type = "export_resumed",
+                            jobId = args["jobId"] as? String,
+                            commandId = commandId,
+                            payload = mapOf("stage" to "Resuming")
+                        )
+                    )
+                    mapOf("accepted" to true)
+                }
+
+                "open_export_file" ->
+                    mapOf("accepted" to true, "outputPath" to (args["outputPath"] as? String))
+
+                "open_export_folder" ->
+                    mapOf("accepted" to true, "outputPath" to (args["outputPath"] as? String))
+
+                "check_export_permissions" -> {
+                    eventEmitter.emit(
+                        NleNativeEvent(
+                            type = "export_permission_status",
+                            commandId = commandId,
+                            payload = mapOf("granted" to true)
+                        )
+                    )
+                    mapOf("accepted" to true, "granted" to true)
+                }
+
+                "schedule_export_notification" -> {
+                    eventEmitter.emit(
+                        NleNativeEvent(
+                            type = "export_notification_scheduled",
+                            jobId = args["jobId"] as? String,
+                            commandId = commandId,
+                            payload = mapOf(
+                                "title" to (args["title"] as? String ?: "Export"),
+                                "body" to (args["body"] as? String ?: "Export is running")
+                            )
+                        )
+                    )
+                    mapOf("accepted" to true)
+                }
+
+                "recover_export_jobs" -> {
+                    eventEmitter.emit(
+                        NleNativeEvent(
+                            type = "export_recovery",
+                            projectId = args["projectId"] as? String,
+                            commandId = commandId,
+                            payload = mapOf("recoveredJobs" to emptyList<Map<String, Any?>>())
+                        )
+                    )
+                    mapOf("accepted" to true, "recoveredJobs" to emptyList<Map<String, Any?>>())
+                }
+
+                "validate_export_graph" -> {
+                    val renderGraphJson = args.requireString("renderGraphJson")
+                    val graph = renderGraphParser.parse(renderGraphJson)
+                    val report = qaValidator.validate(graph)
+                    eventEmitter.emit(
+                        NleNativeEvent(
+                            type = "export_validation",
+                            projectId = args["projectId"] as? String,
+                            commandId = commandId,
+                            payload = mapOf("passed" to report.passed)
+                        )
+                    )
+                    mapOf("passed" to report.passed, "issues" to report.issues.map {
+                        mapOf(
+                            "id" to it.id,
+                            "severity" to it.severity,
+                            "message" to it.message,
+                        )
+                    })
+                }
 
                 NleNativeCommandType.GET_SESSION_STATE ->
                     engineManager.getSessionState(args.requireString("projectId"))
@@ -252,8 +340,8 @@ class NleCommandRouter(
                 }
 
                 NleNativeCommandType.RENDER_GPU_PREVIEW_FRAME -> {
-                    val projectId         = args.requireString("projectId")
-                    val renderGraphJson   = args.requireString("renderGraphJson")
+                    val projectId          = args.requireString("projectId")
+                    val renderGraphJson    = args.requireString("renderGraphJson")
                     val timelineTimeMicros = args.requireLong("timelineTimeMicros") ?: 0L
                     engineManager.renderGpuPreviewFrame(
                         projectId          = projectId,
@@ -305,7 +393,6 @@ class NleCommandRouter(
                     
                     val issues = mutableListOf<com.nle.editor.qa.NleColorQaIssue>()
                     
-                    // 1. Validate GPU pass order
                     val passOrderValidator = NleColorPassOrderValidator()
                     val passIds = mutableListOf("input_to_scene_linear")
                     for (track in graph.tracks) {
@@ -328,7 +415,6 @@ class NleCommandRouter(
                     passIds.add("output_display_transform")
                     issues.addAll(passOrderValidator.validate(passIds))
 
-                    // 2. Validate HDR fallbacks
                     val settings = try {
                         NleHdrOutputParser.parseSettings(args)
                     } catch (e: Exception) {
@@ -524,7 +610,6 @@ class NleCommandRouter(
                     suggestion.toPayload()
                 }
 
-                // 30G-PRO: Scopes commands routing
                 NleNativeCommandType.SCOPES_CONFIGURE -> {
                     val payload = args.asStringDynamicMap("payload")
                     engineManager.configureScopes(payload)
@@ -575,8 +660,6 @@ class NleCommandRouter(
         }
     }
 
-    // ── Error helpers ────────────────────────────────────────────────────────
-
     private fun codeFromThrowable(e: Throwable): String {
         val msg = e.message ?: ""
         return when {
@@ -615,15 +698,11 @@ class NleCommandRouter(
         else                                       -> "The Android video engine had a problem."
     }
 
-    // ── Map extension helpers ────────────────────────────────────────────────
-
     private fun Map<String, Any?>.requireString(key: String): String {
-        val v = this[key]
-        if (v is String && v.isNotBlank()) return v
-        throw IllegalArgumentException("${NleNativeErrorCode.INVALID_ARGUMENTS}: missing string '$key'")
+        return this[key] as? String
+            ?: throw IllegalArgumentException("${NleNativeErrorCode.INVALID_ARGUMENTS}: missing '$key'")
     }
 
-    /** Returns the value as Long, or null if key is absent / not a number. */
     private fun Map<String, Any?>.requireLong(key: String): Long? {
         return when (val v = this[key]) {
             is Long   -> v
@@ -636,7 +715,10 @@ class NleCommandRouter(
 
     @Suppress("UNCHECKED_CAST")
     private fun Map<String, Any?>.asStringDynamicMap(key: String): Map<String, Any?> {
-        val v = this[key] ?: return emptyMap()
-        return if (v is Map<*, *>) v as Map<String, Any?> else emptyMap()
+        val value = this[key]
+        return when (value) {
+            is Map<*, *> -> value.entries.associate { it.key.toString() to it.value }
+            else         -> emptyMap()
+        }
     }
 }
