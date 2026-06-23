@@ -18,9 +18,10 @@ class NleFlutterPreviewTexture(
         if (entry == null) {
             entry = textureRegistry.createSurfaceTexture()
         }
-        entry?.surfaceTexture()?.setDefaultBufferSize(safeWidth, safeHeight)
+        val activeEntry = entry ?: throw IllegalStateException("Flutter preview texture entry was not created.")
+        activeEntry.surfaceTexture().setDefaultBufferSize(safeWidth, safeHeight)
         surface?.release()
-        surface = Surface(entry?.surfaceTexture())
+        surface = Surface(activeEntry.surfaceTexture())
     }
 
     fun currentSurface(): Surface {
