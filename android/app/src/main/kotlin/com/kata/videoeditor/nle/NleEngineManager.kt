@@ -40,11 +40,7 @@ class NleEngineManager(
         return mapOf("disposed" to true)
     }
 
-    fun loadRenderGraph(
-        projectId: String,
-        renderGraphJson: String,
-        commandId: String?,
-    ): Map<String, Any?> {
+    fun loadRenderGraph(projectId: String, renderGraphJson: String, commandId: String?): Map<String, Any?> {
         requireInit()
         val graph = parser.parse(renderGraphJson)
         val session = sessions.getOrPut(projectId) {
@@ -57,21 +53,13 @@ class NleEngineManager(
                 projectId = projectId,
                 sessionId = session.sessionId,
                 commandId = commandId,
-                payload = mapOf(
-                    "durationMicros" to session.durationMicros,
-                    "trackCount" to graph.tracks.size,
-                ),
+                payload = mapOf("durationMicros" to session.durationMicros, "trackCount" to graph.tracks.size),
             ),
         )
         return mapOf("sessionId" to session.sessionId, "durationMicros" to session.durationMicros)
     }
 
-    fun updateRenderGraph(
-        projectId: String,
-        renderGraphJson: String,
-        reason: String?,
-        commandId: String?,
-    ): Map<String, Any?> {
+    fun updateRenderGraph(projectId: String, renderGraphJson: String, reason: String?, commandId: String?): Map<String, Any?> {
         requireInit()
         val graph = parser.parse(renderGraphJson)
         val session = sessions[projectId]
@@ -92,11 +80,7 @@ class NleEngineManager(
     fun validateRenderGraph(renderGraphJson: String): Map<String, Any?> {
         requireInit()
         val graph = parser.parse(renderGraphJson)
-        return mapOf(
-            "valid" to true,
-            "durationMicros" to graph.project.durationUs,
-            "trackCount" to graph.tracks.size,
-        )
+        return mapOf("valid" to true, "durationMicros" to graph.project.durationUs, "trackCount" to graph.tracks.size)
     }
 
     fun play(projectId: String, commandId: String?): Map<String, Any?> {
@@ -299,7 +283,13 @@ class NleEngineManager(
 
     fun startTruePreview(monitorId: String = "program", fromTimelineTimeUs: Long): Map<String, Any?> {
         requireInit()
-        previewManagerFor(monitorId).play(fromTimelineTimeUs)
+        val manager = previewManagerFor(monitorId)
+        val graph = manager.currentGraph()
+            ?: throw IllegalStateException("Native preview graph is not prepared.")
+        if (graph.project.durationUs <= 0L) {
+            throw IllegalStateException("Native preview graph has empty duration.")
+        }
+        manager.play(fromTimelineTimeUs)
         return mapOf("playing" to true, "monitorId" to monitorId)
     }
 
