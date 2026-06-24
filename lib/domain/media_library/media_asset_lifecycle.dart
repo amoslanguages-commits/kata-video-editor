@@ -1,3 +1,6 @@
+import 'package:drift/drift.dart';
+
+import 'package:nle_editor/data/database/app_database.dart';
 import 'package:nle_editor/domain/media_library/media_asset_models.dart';
 import 'package:nle_editor/domain/media_library/media_asset_value_models.dart';
 
@@ -51,4 +54,29 @@ extension NleMediaAssetLifecycle on NleMediaAsset {
         'hasProjectPath': projectPath?.trim().isNotEmpty == true,
         'hasProxyPath': proxyPath?.trim().isNotEmpty == true,
       };
+}
+
+extension NleCanonicalMediaDatabaseLifecycle on AppDatabase {
+  Future<void> upsertMissingMediaRecord(
+    MissingMediaRecordsCompanion companion,
+  ) {
+    return into(missingMediaRecords).insertOnConflictUpdate(companion);
+  }
+
+  Future<void> updateMediaAssetPath({
+    required String assetId,
+    required String originalPath,
+    required String availability,
+  }) async {
+    await (update(mediaAssets)..where((tbl) => tbl.id.equals(assetId))).write(
+      MediaAssetsCompanion(
+        originalPath: Value(originalPath),
+        availability: Value(availability),
+        updatedAt: Value(DateTime.now()),
+      ),
+    );
+    await (update(missingMediaRecords)..where((tbl) => tbl.assetId.equals(assetId))).write(
+      const MissingMediaRecordsCompanion(resolved: Value(true)),
+    );
+  }
 }
