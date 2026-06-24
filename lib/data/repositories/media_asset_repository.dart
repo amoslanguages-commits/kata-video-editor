@@ -86,13 +86,10 @@ class MediaAssetRepository {
     required String proxyPath,
     Map<String, dynamic> metadata = const {},
   }) {
-    return database.upsertMediaAssetProxyState(
+    return database.updateMediaAssetProxyReady(
       assetId: assetId,
       proxyPath: proxyPath,
-      proxyStatus: NleProxyStatus.ready.name,
       proxyMetadataJson: jsonEncode(metadata),
-      proxyError: null,
-      proxyCreatedAt: DateTime.now(),
     );
   }
 
@@ -100,13 +97,10 @@ class MediaAssetRepository {
     required String assetId,
     required String error,
   }) {
-    return database.upsertMediaAssetProxyState(
+    return database.updateMediaAssetProxyStatus(
       assetId: assetId,
-      proxyPath: null,
       proxyStatus: NleProxyStatus.failed.name,
-      proxyMetadataJson: null,
       proxyError: error,
-      proxyCreatedAt: null,
     );
   }
 
