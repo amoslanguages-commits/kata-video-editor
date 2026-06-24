@@ -35,6 +35,23 @@ enum NleMediaLifecycleState {
   relinked,
 }
 
+/// Backward-compatible UI lifecycle stage used by existing screens.
+///
+/// New pipeline code should store canonical state with [NleMediaLifecycleState]
+/// and derive this richer display stage when needed.
+enum NleMediaLifecycleStage {
+  imported,
+  analyzed,
+  proxyNeeded,
+  proxyQueued,
+  proxyGenerating,
+  proxyReady,
+  missing,
+  offline,
+  corrupted,
+  relinked,
+}
+
 enum NleMediaSortMode {
   newest,
   oldest,
@@ -83,6 +100,8 @@ class NleMediaTimecodeInfo {
         durationMicros = 0,
         startTimecodeMicros = 0;
 
+  bool get hasDuration => durationMicros > 0;
+
   Map<String, dynamic> toJson() {
     return {
       'fps': fps,
@@ -127,6 +146,7 @@ class NleMediaVideoInfo {
         hasHdr = false;
 
   bool get hasResolution => width > 0 && height > 0;
+  bool get hasCodec => codec.trim().isNotEmpty;
 
   String get resolutionLabel {
     if (!hasResolution) return 'Unknown';
@@ -175,6 +195,12 @@ class NleMediaAudioInfo {
         codec = '',
         bitrate = 0;
 
+  bool get hasFormat =>
+      sampleRate > 0 ||
+      channelCount > 0 ||
+      codec.trim().isNotEmpty ||
+      bitrate > 0;
+
   Map<String, dynamic> toJson() {
     return {
       'sampleRate': sampleRate,
@@ -218,6 +244,11 @@ class NleMediaFileInfo {
         checksum = null,
         fileCreatedAt = null,
         fileModifiedAt = null;
+
+  bool get hasFileIdentity =>
+      fileName.trim().isNotEmpty ||
+      fileSizeBytes > 0 ||
+      (checksum != null && checksum!.trim().isNotEmpty);
 
   Map<String, dynamic> toJson() {
     return {
