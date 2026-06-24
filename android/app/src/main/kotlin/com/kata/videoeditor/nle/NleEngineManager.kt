@@ -9,13 +9,9 @@ import com.nle.editor.deviceqa.NleDeviceCapabilityCollector
 import com.nle.editor.deviceqa.NleDeviceCapabilityReport
 import com.nle.editor.deviceqa.toPayload
 import com.nle.editor.preview.NleFlutterPreviewTextureManager
-import com.nle.editor.preview.NlePreviewConfig
-import com.nle.editor.preview.NlePreviewEventSink
 import com.nle.editor.preview.NlePreviewManager
-import com.nle.editor.preview.NlePreviewQualityMode
 import com.nle.editor.rendergraph.NleRenderGraphParser
 import com.nle.editor.scopes.NleScopeManager
-import com.nle.editor.scopes.NleScopeSettings
 import io.flutter.view.TextureRegistry
 import kotlin.math.max
 
@@ -47,6 +43,7 @@ class NleEngineManager(
         truePreviewManagers.clear()
         previewTextureManager.releaseAll()
         compositorSession.release()
+        scopeManager.release()
         initialized = false
         return mapOf("disposed" to true)
     }
@@ -58,9 +55,9 @@ class NleEngineManager(
             NleEngineSession(projectId = projectId, initialRenderGraphJson = renderGraphJson)
         }
         session.updateGraph(renderGraphJson)
-        truePreviewManagers.values.forEach { 
+        truePreviewManagers.values.forEach {
             if (it.projectId == projectId) {
-                it.updateRenderGraph(renderGraphJson) 
+                it.updateRenderGraph(renderGraphJson)
             }
         }
         eventEmitter.emit(
@@ -81,9 +78,9 @@ class NleEngineManager(
         val session = sessions[projectId]
             ?: throw IllegalStateException(NleNativeErrorCode.SESSION_NOT_FOUND)
         session.updateGraph(renderGraphJson)
-        truePreviewManagers.values.forEach { 
+        truePreviewManagers.values.forEach {
             if (it.projectId == projectId) {
-                it.updateRenderGraph(renderGraphJson) 
+                it.updateRenderGraph(renderGraphJson)
             }
         }
         eventEmitter.emit(
