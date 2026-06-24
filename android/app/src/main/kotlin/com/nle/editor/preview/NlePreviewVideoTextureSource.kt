@@ -21,12 +21,7 @@ class NlePreviewVideoTextureSource(
         sourceTimeUs: Long,
     ): NleLayerTexture? {
         val asset = assetMap[assetId] ?: return null
-
-        val path = if (preferProxy) {
-            asset.proxyPath ?: asset.originalPath
-        } else {
-            asset.originalPath ?: asset.proxyPath
-        } ?: return null
+        val path = resolvePath(asset) ?: return null
 
         val trueAsset = NleTrueExportAsset(
             id = asset.id,
@@ -41,7 +36,6 @@ class NlePreviewVideoTextureSource(
         return try {
             val decoder = decoderPool.decoderFor(trueAsset)
             val frame = decoder.decodeFrameAtOrAfter(sourceTimeUs)
-
             NleLayerTexture(
                 textureId = frame.oesTextureId,
                 target = GLES11Ext.GL_TEXTURE_EXTERNAL_OES,
@@ -55,6 +49,15 @@ class NlePreviewVideoTextureSource(
                 "video texture failed asset=$assetId sourceUs=$sourceTimeUs path=$path reason=${error.message ?: error}"
             )
             null
+        }
+    }
+
+    private fun resolvePath(asset: com.nle.editor.rendergraph.NleRenderAsset): String? {
+        asset.resolvedPath?.let { return it }
+        return if (preferProxy) {
+            asset.proxyPath ?: asset.projectPath ?: asset.originalPath
+        } else {
+            asset.projectPath ?: asset.originalPath ?: asset.proxyPath
         }
     }
 }
