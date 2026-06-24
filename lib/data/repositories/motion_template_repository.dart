@@ -5,7 +5,6 @@ import 'package:drift/drift.dart' show Value;
 
 import 'package:nle_editor/data/database/app_database.dart' as db;
 import 'package:nle_editor/domain/motion_templates/builtin_motion_template_factory.dart';
-import 'package:nle_editor/domain/motion_templates/motion_template_layer_models.dart';
 import 'package:nle_editor/domain/motion_templates/motion_template_models.dart';
 import 'package:nle_editor/domain/motion_templates/motion_template_value_models.dart';
 import 'package:nle_editor/domain/motion_templates/template_parameter_applier.dart';
