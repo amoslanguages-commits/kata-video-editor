@@ -81,27 +81,11 @@ RenderGraphDto _parseGraph(Map<String, dynamic> map) {
 
   final hintsMap = map['exportHints'] as Map<String, dynamic>? ?? {};
   final exportHints = RenderGraphExportHintsDto(
-    useProxyForPreview: hintsMap['useProxyForPreview'] == true,
+    requiresCompositing: hintsMap['requiresCompositing'] == true || hintsMap['containsVideo'] == true,
+    requiresAudioMixdown: hintsMap['requiresAudioMixdown'] == true || hintsMap['containsAudio'] == true,
+    requiresColorPipeline: hintsMap['requiresColorPipeline'] == true,
+    requiresTextLayout: hintsMap['requiresTextLayout'] == true || hintsMap['containsText'] == true,
     useOriginalForExport: hintsMap['useOriginalForExport'] != false,
-    requiresGpuCompositor: hintsMap['requiresGpuCompositor'] != false,
-    containsText: hintsMap['containsText'] == true,
-    containsImage: hintsMap['containsImage'] == true,
-    containsVideo: hintsMap['containsVideo'] == true,
-    containsAudio: hintsMap['containsAudio'] == true,
-    containsAdjustment: hintsMap['containsAdjustment'] == true,
-    containsColorAdjustments: hintsMap['containsColorAdjustments'] == true,
-    containsCrop: hintsMap['containsCrop'] == true,
-    containsSpeedChanges: hintsMap['containsSpeedChanges'] == true,
-    containsFades: hintsMap['containsFades'] == true,
-    containsLut: hintsMap['containsLut'] == true,
-    containsPrimaryGrades: hintsMap['containsPrimaryGrades'] == true,
-    containsColorCurves: hintsMap['containsColorCurves'] == true,
-    containsSecondaryGrades: hintsMap['containsSecondaryGrades'] == true,
-    containsFilmLooks: hintsMap['containsFilmLooks'] == true,
-    outputMode: hintsMap['outputMode']?.toString() ?? 'rec709Sdr',
-    isHdrOutput: hintsMap['isHdrOutput'] == true,
-    isWideColorOutput: hintsMap['isWideColorOutput'] == true,
-    requiresTenBit: hintsMap['requiresTenBit'] == true,
   );
 
   final pipelineMap = map['colorPipeline'] as Map<String, dynamic>?;
@@ -114,6 +98,8 @@ RenderGraphDto _parseGraph(Map<String, dynamic> map) {
           working: const {},
           previewOutput: const {},
           exportOutput: const {},
+          forceCompatibilityMode: pipelineMap['forceCompatibilityMode'] == true,
+          previewMatchesExport: pipelineMap['previewMatchesExport'] != false,
           assetInputTransforms: const {},
         );
 
@@ -125,14 +111,13 @@ RenderGraphDto _parseGraph(Map<String, dynamic> map) {
     assets: const [],
     tracks: const [],
     composition: const RenderGraphCompositionDto(
-      visualTrackIdsBottomToTop: [],
-      enabledVisualTrackIdsBottomToTop: [],
-      audioTrackIds: [],
-      enabledAudioTrackIds: [],
-      hasSoloAudio: false,
-      hasHiddenTracks: false,
-      visualLayerCount: 0,
-      audioLayerCount: 0,
+      durationMicros: 0,
+      videoTrackCount: 0,
+      audioTrackCount: 0,
+      clipCount: 0,
+      hasOverlays: false,
+      hasText: false,
+      hasAudio: false,
     ),
     audioMix: const RenderGraphAudioMixDto(
       enabled: true,

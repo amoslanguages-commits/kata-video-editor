@@ -163,4 +163,5 @@ data class NleRenderExportHints(
 data class NleRenderEffectChain(
     val enabled: Boolean,
     val nodes: List<Map<String, Any?>>,
+    val slots: List<NleRenderEffectSlot> = emptyList(),
 )

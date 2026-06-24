@@ -44,7 +44,7 @@ class NleTrueDecoderVideoExporter {
         val parser = NleRenderGraphParser()
         val graph = parser.parse(renderGraphJson)
 
-        val hasAudio = graph.exportHints.containsAudio && graph.audioMix.enabled
+        val hasAudio = graph.composition.hasAudio && graph.audioMix.enabled
 
         val muxerCoordinator = NleExportMuxerCoordinator(outputPath)
         muxerCoordinator.setExpectsAudio(hasAudio)

@@ -212,22 +212,19 @@ class _MediaPoolPanelState extends ConsumerState<MediaPoolPanel> {
                           decoration: const BoxDecoration(
                             border: Border(bottom: BorderSide(color: AppTheme.borderSubtle, width: 0.5)),
                           ),
-                          child: Row(
-                            children: [
-                              Expanded(
-                                child: SingleChildScrollView(
-                                  scrollDirection: Axis.horizontal,
-                                  child: Row(
-                                    children: [
-                                      _buildFilterTab('All', 'all'),
-                                      _buildFilterTab('Videos', 'video'),
-                                      _buildFilterTab('Audio', 'audio'),
-                                      _buildFilterTab('Images', 'image'),
-                                    ],
-                                  ),
+                          child: SingleChildScrollView(
+                            scrollDirection: Axis.horizontal,
+                            child: Row(
+                              children: [
+                                Row(
+                                  children: [
+                                    _buildFilterTab('All', 'all'),
+                                    _buildFilterTab('Videos', 'video'),
+                                    _buildFilterTab('Audio', 'audio'),
+                                    _buildFilterTab('Images', 'image'),
+                                  ],
                                 ),
-                              ),
-                              const SizedBox(width: 12),
+                                const SizedBox(width: 12),
                               // Search Input
                               SizedBox(
                                 width: 100, // Reduced from 140

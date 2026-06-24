@@ -2,6 +2,7 @@ package com.nle.editor.preview
 
 import io.flutter.view.TextureRegistry
 import com.nle.editor.scopes.NleScopeManager
+import com.nle.editor.audio.NlePreviewAudioMixer
 
 class NlePreviewManager(
     textureRegistry: TextureRegistry,
@@ -9,10 +10,16 @@ class NlePreviewManager(
     val scopeManager: NleScopeManager? = null,
     val monitorId: String
 ) {
+    var projectId: String? = null
+
+    private val audioMixer = NlePreviewAudioMixer()
+    private val audioPlayer = NlePreviewAudioPlayer(audioMixer)
+
     private val renderer = NleTrueDecoderPreviewRenderer(textureRegistry, monitorId)
     private val scheduler = NlePreviewFrameScheduler(
         renderer = renderer,
         events = events,
+        audioPlayer = audioPlayer,
     )
 
     init {
@@ -21,6 +28,7 @@ class NlePreviewManager(
     }
 
     fun prepare(config: NlePreviewConfig) {
+        this.projectId = config.projectId
         try {
             val textureId = renderer.prepareFlutterSurface(config)
             val size = renderer.outputSize()
@@ -33,6 +41,11 @@ class NlePreviewManager(
 
             scheduler.runOnRenderThreadBlocking {
                 renderer.prepareDecoderPipeline(config)
+                val graph = renderer.currentGraph()
+                if (graph != null) {
+                    audioMixer.updateGraph(graph, config.preferProxy)
+                    audioPlayer.prepare(graph)
+                }
             }
 
             val initialFrame = scheduler.runOnRenderThreadBlocking {
@@ -64,6 +77,11 @@ class NlePreviewManager(
                     renderGraphJson = renderGraphJson,
                     preferProxy = preferProxy,
                 )
+                val graph = renderer.currentGraph()
+                if (graph != null) {
+                    audioMixer.updateGraph(graph, preferProxy)
+                    audioPlayer.prepare(graph)
+                }
             }
         } catch (error: Throwable) {
             events.onPreviewError(error.message ?: error.toString())
@@ -91,6 +109,8 @@ class NlePreviewManager(
         try {
             scheduler.runOnRenderThreadBlocking {
                 scheduler.pause()
+                audioPlayer.release()
+                audioMixer.release()
                 renderer.release()
             }
         } catch (_: Throwable) {

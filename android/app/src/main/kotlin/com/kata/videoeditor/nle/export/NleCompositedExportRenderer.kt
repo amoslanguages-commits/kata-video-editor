@@ -28,7 +28,7 @@ class NleCompositedExportRenderer(
     private val audioMixdownRenderer = NlePcmAudioMixdownRenderer()
     private val colorFallbackResolver = NleColorPipelineFallbackResolver()
 
-    fun render(
+    internal fun render(
         jobId: String,
         renderGraphJson: String,
         outputPath: String,
@@ -155,7 +155,7 @@ class NleCompositedExportRenderer(
                     outputHeight = height,
                     resolvedColorPipeline = resolvedColorPipeline,
                 )
-                android.opengl.EGLES20.glFinish()
+                android.opengl.GLES20.glFinish()
                 activeEgl.setPresentationTimeNanos(timelineUs * 1000L)
                 activeEgl.swapBuffers()
                 drainEncoder(

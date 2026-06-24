@@ -14,6 +14,7 @@ class NlePreviewFrameScheduler(
     private val renderer: NleTrueDecoderPreviewRenderer,
     private val events: NlePreviewEventSink,
     val syncTelemetry: NlePreviewSyncTelemetry = NlePreviewSyncTelemetry(),
+    var audioPlayer: NlePreviewAudioPlayer? = null,
 ) {
     private val thread = HandlerThread("NlePreviewFrameScheduler")
     private lateinit var handler: Handler
@@ -23,8 +24,9 @@ class NlePreviewFrameScheduler(
     private var startTimelineUs: Long = 0L
     private var startClockMs: Long = 0L
     private var consecutiveDroppedFrames = 0
+    private var lastRenderCostMs: Long = 0L
 
-    private val renderThreadTimeoutMs = 2500L
+    private val renderThreadTimeoutMs = 8000L
     private val maxConsecutiveDroppedFrames = 5
 
     fun startThread() {
@@ -97,6 +99,7 @@ class NlePreviewFrameScheduler(
 
         playing.set(true)
         renderer.setPlaying()
+        audioPlayer?.play(startTimelineUs)
 
         syncTelemetry.startSession(startTimelineUs)
 
@@ -107,6 +110,7 @@ class NlePreviewFrameScheduler(
     fun pause() {
         playing.set(false)
         renderer.setPaused()
+        audioPlayer?.pause()
 
         if (::handler.isInitialized) {
             handler.removeCallbacksAndMessages(null)
@@ -118,6 +122,7 @@ class NlePreviewFrameScheduler(
 
         playing.set(false)
         renderer.setPaused()
+        audioPlayer?.seek(timelineTimeUs)
 
         handler.removeCallbacksAndMessages(null)
 
@@ -159,23 +164,34 @@ class NlePreviewFrameScheduler(
             val frameRate = graph.project.frameRate.coerceAtLeast(1.0)
             val frameDurationMs = (1000.0 / frameRate).toLong().coerceAtLeast(8L)
 
-            val elapsedMs = SystemClock.elapsedRealtime() - startClockMs
-            val timelineTimeUs = startTimelineUs + elapsedMs * 1000L
+            // If audio player is available, use its playback head for perfect A/V sync.
+            // Otherwise, fallback to system clock.
+            val baseTimelineTimeUs = audioPlayer?.getPlaybackHeadPositionUs() ?: run {
+                val elapsedMs = SystemClock.elapsedRealtime() - startClockMs
+                startTimelineUs + elapsedMs * 1000L
+            }
 
-            if (timelineTimeUs >= graph.project.durationUs) {
+            // Predictive A/V sync: The frame we request will take `lastRenderCostMs` to decode.
+            // By the time it appears on screen, the audio will have advanced by that amount.
+            // So we request the frame from the FUTURE to perfectly align with the audio when it's drawn.
+            val expectedDecodeDelayUs = (lastRenderCostMs * 1000L).coerceIn(0L, 200_000L) // cap at 200ms
+            val timelineTimeUs = baseTimelineTimeUs + expectedDecodeDelayUs
+
+            if (baseTimelineTimeUs >= graph.project.durationUs) {
                 playing.set(false)
                 renderer.setPaused()
+                audioPlayer?.pause()
                 events.onPreviewEnded()
                 return
             }
 
             val before = SystemClock.elapsedRealtime()
             val result = renderer.renderFrame(timelineTimeUs)
-            val renderCostMs = SystemClock.elapsedRealtime() - before
+            lastRenderCostMs = SystemClock.elapsedRealtime() - before
 
             syncTelemetry.onFrame(
                 timelineTimeUs = timelineTimeUs,
-                renderCostMs = renderCostMs,
+                renderCostMs = lastRenderCostMs,
             )
 
             val rendered = emitFrameResult(result)
@@ -186,6 +202,7 @@ class NlePreviewFrameScheduler(
                 if (consecutiveDroppedFrames >= maxConsecutiveDroppedFrames) {
                     playing.set(false)
                     renderer.setPaused()
+                    audioPlayer?.pause()
                     events.onPreviewError(
                         "Native preview stopped after ${consecutiveDroppedFrames} consecutive render failures."
                     )
@@ -193,12 +210,13 @@ class NlePreviewFrameScheduler(
                 }
             }
 
-            val delayMs = (frameDurationMs - renderCostMs).coerceAtLeast(0L)
+            val delayMs = (frameDurationMs - lastRenderCostMs).coerceAtLeast(0L)
 
-            if (renderCostMs > frameDurationMs * 2) {
+            if (lastRenderCostMs > frameDurationMs * 2) {
+                // If rendering is slow, drop video frame warning but keep going. Audio will keep playing.
                 events.onPreviewDroppedFrame(
                     timelineTimeUs = timelineTimeUs,
-                    reason = "Render too slow: ${renderCostMs}ms",
+                    reason = "Render too slow: ${lastRenderCostMs}ms",
                 )
             }
 

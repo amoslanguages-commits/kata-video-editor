@@ -3,38 +3,6 @@ package com.nle.editor.preview
 import android.view.Surface
 import io.flutter.view.TextureRegistry
 
-class NleFlutterPreviewTexture(
-    private val textureRegistry: TextureRegistry,
-) {
-    private var entry: TextureRegistry.SurfaceTextureEntry? = null
-    private var surface: Surface? = null
-
-    val textureId: Long
-        get() = entry?.id() ?: -1L
-
-    fun createOrResize(width: Int, height: Int) {
-        val safeWidth = width.coerceAtLeast(16)
-        val safeHeight = height.coerceAtLeast(16)
-        if (entry == null) {
-            entry = textureRegistry.createSurfaceTexture()
-        }
-        val activeEntry = entry ?: throw IllegalStateException("Flutter preview texture entry was not created.")
-        activeEntry.surfaceTexture().setDefaultBufferSize(safeWidth, safeHeight)
-        surface?.release()
-        surface = Surface(activeEntry.surfaceTexture())
-    }
-
-    fun currentSurface(): Surface {
-        return surface ?: throw IllegalStateException("Flutter preview surface has not been created.")
-    }
-
-    fun release() {
-        surface?.release()
-        surface = null
-        entry?.release()
-        entry = null
-    }
-}
 
 class NleManagedFlutterPreviewTexture(
     val id: Long,

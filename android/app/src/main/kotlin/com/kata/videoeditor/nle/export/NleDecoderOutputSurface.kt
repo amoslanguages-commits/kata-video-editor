@@ -3,6 +3,7 @@ package com.kata.videoeditor.nle.export
 import android.graphics.SurfaceTexture
 import android.opengl.GLES20
 import android.os.Handler
+import android.os.HandlerThread
 import android.os.Looper
 import android.view.Surface
 import com.kata.videoeditor.nle.NleNativeErrorCode
@@ -48,10 +49,16 @@ class NleDecoderOutputSurface : SurfaceTexture.OnFrameAvailableListener {
 
     private val transform = FloatArray(16)
 
+    companion object {
+        private val callbackThread by lazy {
+            HandlerThread("NleDecoderCallbackThread").apply { start() }
+        }
+    }
+
     init {
         surfaceTexture.setOnFrameAvailableListener(
             this,
-            Handler(Looper.getMainLooper()),
+            Handler(callbackThread.looper),
         )
     }
 

@@ -30,7 +30,7 @@ class NleEngineManager(
     private val previewTextureManager = NleFlutterPreviewTextureManager(textureRegistry)
     private val compositorSession = com.nle.editor.preview.NleGpuPreviewCompositorSession()
     private val truePreviewManagers = mutableMapOf<String, NlePreviewManager>()
-    private val scopeManager = NleScopeManager()
+    private val scopeManager = NleScopeManager(sendEvent = { type, payload -> eventEmitter.emit(NleNativeEvent(type = type, payload = payload)) })
     private val nativeExportRenderer = NleNativeExportRenderer(eventEmitter)
     private val nativeProxyRenderer = NleNativeProxyRenderer(eventEmitter)
     private val deviceCapabilityCollector by lazy { NleDeviceCapabilityCollector(appContext) }
@@ -58,6 +58,11 @@ class NleEngineManager(
             NleEngineSession(projectId = projectId, initialRenderGraphJson = renderGraphJson)
         }
         session.updateGraph(renderGraphJson)
+        truePreviewManagers.values.forEach { 
+            if (it.projectId == projectId) {
+                it.updateRenderGraph(renderGraphJson) 
+            }
+        }
         eventEmitter.emit(
             NleNativeEvent(
                 type = NleNativeEventType.GRAPH_LOADED,
@@ -76,6 +81,11 @@ class NleEngineManager(
         val session = sessions[projectId]
             ?: throw IllegalStateException(NleNativeErrorCode.SESSION_NOT_FOUND)
         session.updateGraph(renderGraphJson)
+        truePreviewManagers.values.forEach { 
+            if (it.projectId == projectId) {
+                it.updateRenderGraph(renderGraphJson) 
+            }
+        }
         eventEmitter.emit(
             NleNativeEvent(
                 type = NleNativeEventType.GRAPH_UPDATED,
@@ -227,6 +237,96 @@ class NleEngineManager(
     fun getAudioEngineState(projectId: String): Map<String, Any?> {
         requireInit()
         return mapOf("initialized" to false, "projectId" to projectId)
+    }
+
+    fun configureScopes(payload: Map<String, Any?>): Map<String, Any?> {
+        requireInit()
+        scopeManager.configure(com.nle.editor.scopes.NleScopeSettings.fromPayload(payload))
+        return mapOf("success" to true)
+    }
+
+    fun requestScopeFrame(monitorId: String, timestampMicros: Long): Map<String, Any?> {
+        requireInit()
+        scopeManager.requestFrame(monitorId, timestampMicros)
+        return mapOf("success" to true)
+    }
+
+    fun startLiveScopes(monitorId: String): Map<String, Any?> {
+        requireInit()
+        scopeManager.startLive(monitorId)
+        return mapOf("success" to true)
+    }
+
+    fun stopLiveScopes(): Map<String, Any?> {
+        requireInit()
+        scopeManager.stopLive()
+        return mapOf("success" to true)
+    }
+
+    fun setPreviewEventSink(sink: com.nle.editor.preview.NlePreviewEventSink) {
+    }
+
+    fun prepareTruePreview(
+        monitorId: String,
+        projectId: String,
+        renderGraphJson: String,
+        qualityMode: String,
+        preferProxy: Boolean,
+        maxPreviewWidth: Int,
+        maxPreviewHeight: Int,
+    ): Map<String, Any?> {
+        requireInit()
+        val config = com.nle.editor.preview.NlePreviewConfig(
+            projectId = projectId,
+            renderGraphJson = renderGraphJson,
+            qualityMode = com.nle.editor.preview.NlePreviewQualityMode.valueOf(qualityMode.uppercase()),
+            preferProxy = preferProxy,
+            maxPreviewWidth = maxPreviewWidth,
+            maxPreviewHeight = maxPreviewHeight,
+        )
+        val manager = truePreviewManagers.getOrPut(monitorId) {
+            com.nle.editor.preview.NlePreviewManager(
+                textureRegistry = textureRegistry,
+                events = com.kata.videoeditor.nle.NlePreviewBridgeEventSink(monitorId) { type, payload ->
+                    eventEmitter.emit(com.kata.videoeditor.nle.NleNativeEvent(type = type, payload = payload))
+                },
+                scopeManager = scopeManager,
+                monitorId = monitorId
+            )
+        }
+        manager.prepare(config)
+        return mapOf("prepared" to true)
+    }
+
+    fun renderPreviewFrame(monitorId: String, timelineTimeUs: Long): Map<String, Any?> {
+        requireInit()
+        val manager = truePreviewManagers[monitorId] ?: return mapOf("rendered" to false)
+        val result = manager.renderFrame(timelineTimeUs)
+        return mapOf("rendered" to result.rendered, "timelineTimeUs" to result.timelineTimeUs)
+    }
+
+    fun startTruePreview(monitorId: String, fromTimelineTimeUs: Long): Map<String, Any?> {
+        requireInit()
+        truePreviewManagers[monitorId]?.play(fromTimelineTimeUs)
+        return mapOf("playing" to true)
+    }
+
+    fun pauseTruePreview(monitorId: String): Map<String, Any?> {
+        requireInit()
+        truePreviewManagers[monitorId]?.pause()
+        return mapOf("playing" to false)
+    }
+
+    fun stopTruePreview(monitorId: String): Map<String, Any?> {
+        requireInit()
+        truePreviewManagers[monitorId]?.stop()
+        return mapOf("stopped" to true)
+    }
+
+    fun disposeTruePreview(monitorId: String): Map<String, Any?> {
+        requireInit()
+        truePreviewManagers.remove(monitorId)?.release()
+        return mapOf("disposed" to true)
     }
 
     fun createPreviewTexture(projectId: String?, width: Int, height: Int, commandId: String?): Map<String, Any?> {

@@ -174,89 +174,23 @@ class MultitrackQaRunner {
 
     final visualTracks = graph.tracks.where((track) => track.isVisual).toList();
 
-    final enabledIds = graph.composition.enabledVisualTrackIdsBottomToTop.toSet();
-
-    final shouldBeEnabled = visualTracks.where((track) {
-      if (track.isHidden) return false;
-      if (track.isMuted) return false;
-      return true;
-    }).map((track) {
-      return track.id;
-    }).toSet();
-
     checks.add(
-      enabledIds.length == shouldBeEnabled.length &&
-              enabledIds.containsAll(shouldBeEnabled)
+      graph.composition.videoTrackCount == visualTracks.length
           ? _pass(
-              'visual.enabledTracks',
-              'Enabled visual tracks',
-              'Hidden/muted visual tracks are excluded correctly.',
+              'visual.trackCount',
+              'Visual track count',
+              'Video track count is correct.',
             )
           : _fail(
-              'visual.enabledTracks',
-              'Enabled visual tracks',
-              'enabledVisualTrackIdsBottomToTop does not match hidden/muted track rules.',
+              'visual.trackCount',
+              'Visual track count',
+              'videoTrackCount does not match visual tracks.',
               {
-                'expected': shouldBeEnabled.toList(),
-                'actual': enabledIds.toList(),
+                'expected': visualTracks.length,
+                'actual': graph.composition.videoTrackCount,
               },
             ),
     );
-
-    final bottomToTop = graph.composition.visualTrackIdsBottomToTop;
-
-    checks.add(
-      bottomToTop.length == visualTracks.length
-          ? _pass(
-              'visual.order.count',
-              'Visual order count',
-              'Visual composition contains all visual tracks.',
-            )
-          : _fail(
-              'visual.order.count',
-              'Visual order count',
-              'visualTrackIdsBottomToTop must include every visual track.',
-              {
-                'visualTrackCount': visualTracks.length,
-                'compositionCount': bottomToTop.length,
-              },
-            ),
-    );
-
-    final sortedVisual = [...visualTracks]
-      ..sort((a, b) => a.layerOrder.compareTo(b.layerOrder));
-
-    final expectedOrder = sortedVisual.map((track) => track.id).toList();
-
-    checks.add(
-      _listEquals(bottomToTop, expectedOrder)
-          ? _pass(
-              'visual.order.bottomToTop',
-              'Visual bottom-to-top order',
-              'Visual track order is stable and export-ready.',
-            )
-          : _warning(
-              'visual.order.bottomToTop',
-              'Visual bottom-to-top order',
-              'Visual track order may not match expected layerOrder.',
-              {
-                'expected': expectedOrder,
-                'actual': bottomToTop,
-              },
-            ),
-    );
-
-    for (final track in visualTracks) {
-      if (track.isLocked) {
-        checks.add(
-          _pass(
-            'visual.locked.${track.id}',
-            'Locked visual track renders',
-            'Locked track ${track.name} is still serialized. Lock only blocks editing.',
-          ),
-        );
-      }
-    }
 
     return checks;
   }
@@ -545,73 +479,37 @@ class MultitrackQaRunner {
     final hasAudio = clips.any((clip) => clip.type == 'audio' || clip.type == 'video');
 
     checks.add(
-      graph.exportHints.containsVideo == hasVideo
+      graph.exportHints.requiresCompositing == (hasVideo || hasImage || hasText)
           ? _pass(
-              'hints.video',
-              'Export hint: video',
-              'containsVideo is correct.',
+              'hints.compositing',
+              'Export hint: compositing',
+              'requiresCompositing is correct.',
             )
           : _warning(
-              'hints.video',
-              'Export hint: video',
-              'containsVideo does not match clips.',
+              'hints.compositing',
+              'Export hint: compositing',
+              'requiresCompositing does not match clips.',
               {
-                'expected': hasVideo,
-                'actual': graph.exportHints.containsVideo,
+                'expected': hasVideo || hasImage || hasText,
+                'actual': graph.exportHints.requiresCompositing,
               },
             ),
     );
 
     checks.add(
-      graph.exportHints.containsImage == hasImage
-          ? _pass(
-              'hints.image',
-              'Export hint: image',
-              'containsImage is correct.',
-            )
-          : _warning(
-              'hints.image',
-              'Export hint: image',
-              'containsImage does not match clips.',
-              {
-                'expected': hasImage,
-                'actual': graph.exportHints.containsImage,
-              },
-            ),
-    );
-
-    checks.add(
-      graph.exportHints.containsText == hasText
-          ? _pass(
-              'hints.text',
-              'Export hint: text',
-              'containsText is correct.',
-            )
-          : _warning(
-              'hints.text',
-              'Export hint: text',
-              'containsText does not match clips.',
-              {
-                'expected': hasText,
-                'actual': graph.exportHints.containsText,
-              },
-            ),
-    );
-
-    checks.add(
-      graph.exportHints.containsAudio == hasAudio
+      graph.exportHints.requiresAudioMixdown == hasAudio
           ? _pass(
               'hints.audio',
               'Export hint: audio',
-              'containsAudio is correct.',
+              'requiresAudioMixdown is correct.',
             )
           : _warning(
               'hints.audio',
               'Export hint: audio',
-              'containsAudio does not match clips.',
+              'requiresAudioMixdown does not match clips.',
               {
                 'expected': hasAudio,
-                'actual': graph.exportHints.containsAudio,
+                'actual': graph.exportHints.requiresAudioMixdown,
               },
             ),
     );

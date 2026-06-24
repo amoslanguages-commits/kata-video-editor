@@ -111,16 +111,21 @@ class MultitrackRenderGraphMapper {
       return true;
     }).toList();
 
+    int durationMicros = 0;
+    for (final clip in timeline.clips) {
+      if (clip.timelineEndMicros > durationMicros) {
+        durationMicros = clip.timelineEndMicros;
+      }
+    }
+
     return RenderGraphCompositionDto(
-      visualTrackIdsBottomToTop: visualTracks.map((track) => track.id).toList(),
-      enabledVisualTrackIdsBottomToTop:
-          enabledVisualTracks.map((track) => track.id).toList(),
-      audioTrackIds: audioTracks.map((track) => track.id).toList(),
-      enabledAudioTrackIds: enabledAudioTracks.map((track) => track.id).toList(),
-      hasSoloAudio: hasSoloAudio,
-      hasHiddenTracks: timeline.tracks.any((track) => track.isHidden),
-      visualLayerCount: visualTracks.length,
-      audioLayerCount: audioTracks.length,
+      durationMicros: durationMicros,
+      videoTrackCount: visualTracks.where((t) => t.type == MultitrackTrackType.video).length,
+      audioTrackCount: audioTracks.length,
+      clipCount: timeline.clips.length,
+      hasOverlays: visualTracks.any((t) => t.type == MultitrackTrackType.overlay),
+      hasText: visualTracks.any((t) => t.type == MultitrackTrackType.text),
+      hasAudio: audioTracks.isNotEmpty,
     );
   }
 
@@ -154,11 +159,13 @@ class MultitrackRenderGraphMapper {
     }).toList();
 
     return RenderGraphAudioMixDto(
-      enabled: audioTracks.isNotEmpty,
+      enabled: true, // Always enabled so visual tracks with embedded audio are processed
       hasSoloAudio: hasSoloAudio,
       soloAudioTrackIds: soloTrackIds,
       mutedAudioTrackIds: mutedTrackIds,
       activeAudioTrackIds: activeTrackIds,
+      sampleRate: 48000,
+      channels: 2,
       masterEffectChain: masterEffectChain,
     );
   }
@@ -239,27 +246,11 @@ class MultitrackRenderGraphMapper {
     final requiresTenBit = hdrSettings.bitDepth == NleOutputBitDepth.tenBit;
 
     return RenderGraphExportHintsDto(
-      useProxyForPreview: true,
+      requiresCompositing: containsVideo || containsImage || containsAdjustment || containsCrop || containsSpeedChanges || containsFades,
+      requiresAudioMixdown: containsAudio,
+      requiresColorPipeline: containsColorAdjustments || containsLut || containsPrimaryGrades || containsColorCurves || containsSecondaryGrades || containsFilmLooks,
+      requiresTextLayout: containsText,
       useOriginalForExport: true,
-      requiresGpuCompositor: true,
-      containsText: containsText,
-      containsImage: containsImage,
-      containsVideo: containsVideo,
-      containsAudio: containsAudio,
-      containsAdjustment: containsAdjustment,
-      containsColorAdjustments: containsColorAdjustments,
-      containsCrop: containsCrop,
-      containsSpeedChanges: containsSpeedChanges,
-      containsFades: containsFades,
-      containsLut: containsLut,
-      containsPrimaryGrades: containsPrimaryGrades,
-      containsColorCurves: containsColorCurves,
-      containsSecondaryGrades: containsSecondaryGrades,
-      containsFilmLooks: containsFilmLooks,
-      outputMode: hdrSettings.colorMode.name,
-      isHdrOutput: isHdrOutput,
-      isWideColorOutput: isWideColorOutput,
-      requiresTenBit: requiresTenBit,
     );
   }
 
@@ -376,7 +367,6 @@ class MultitrackRenderGraphMapper {
       timelineEndMicros: clip.timelineEndMicros,
       sourceStartMicros: clip.sourceStartMicros,
       sourceEndMicros: clip.sourceEndMicros,
-      durationMicros: math.max(0, clip.timelineEndMicros - clip.timelineStartMicros),
       speed: clip.speed,
       transform: RenderGraphTransformDto(
         positionX: clip.positionX,
@@ -411,7 +401,7 @@ class MultitrackRenderGraphMapper {
           : null,
       lutStack: lutStackDto,
       primaryGrade: primaryGradeDto,
-      colorCurves: colorCurvesDto,
+      // colorCurves: colorCurvesDto,
       secondaryGrades: secondaryGradesDto,
       filmLook: filmLookDto,
       effectChain: effectChain,

@@ -74,6 +74,10 @@ class MediaAssetRepository {
     return asset;
   }
 
+  Future<void> deleteAsset(String assetId) async {
+    await database.deleteMediaAssetById(assetId);
+  }
+
   Future<void> saveAsset(NleMediaAsset asset) async {
     await database.upsertMediaAsset(
       db.MediaAssetsCompanion(

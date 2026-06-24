@@ -23,9 +23,7 @@ class NleVisualLayerResolver {
     ): List<NleResolvedVisualLayer> {
         val assetMap = graph.assets.associateBy { it.id }
 
-        val enabledTrackIds = graph.composition
-            .enabledVisualTrackIdsBottomToTop
-            .toSet()
+        val enabledTrackIds = emptySet<String>()
 
         val visualTracks = graph.tracks
             .filter { it.isVisual }

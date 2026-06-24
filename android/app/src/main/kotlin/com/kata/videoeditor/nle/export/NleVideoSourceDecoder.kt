@@ -94,8 +94,13 @@ class NleVideoSourceDecoder(val asset: NleTrueExportAsset) {
 
         val frameToleranceUs = 50_000L // 50 ms tolerance for sync frames
         var renderAttempts = 0
+        val decodeStartTimeMs = android.os.SystemClock.elapsedRealtime()
 
         while (!outputDone) {
+            if (android.os.SystemClock.elapsedRealtime() - decodeStartTimeMs > 1500L) {
+                throw IllegalStateException("Seek taking too long (sparse keyframes). Please generate proxies.")
+            }
+
             feedDecoderInput()
 
             val outputIndex = decoder.dequeueOutputBuffer(bufferInfo, 10_000L)

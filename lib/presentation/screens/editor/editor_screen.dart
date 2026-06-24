@@ -669,7 +669,7 @@ class _EditorScreenState extends ConsumerState<EditorScreen> {
                       mainAxisSize: MainAxisSize.min,
                       children: [
                         if (selectedProjectId != null) ...[
-                          _WatermarkToggle(projectId: selectedProjectId),
+// _WatermarkToggle(projectId: selectedProjectId),
                           const SizedBox(height: 8),
                           const Divider(),
                           const SizedBox(height: 8),
@@ -759,3 +759,14 @@ class _EditorScreenState extends ConsumerState<EditorScreen> {
                     onPressed: () {
                       exportNotifier.cancelExport();
                       Navigator.pop(context);
+                    },
+                    child: const Text('Cancel Export'),
+                  ),
+              ],
+            );
+          },
+        );
+      },
+    );
+  }
+}

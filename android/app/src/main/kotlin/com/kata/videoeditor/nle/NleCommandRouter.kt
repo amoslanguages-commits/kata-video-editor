@@ -638,6 +638,7 @@ class NleCommandRouter(
             mapOf("success" to true, "method" to method, "result" to result)
 
         } catch (e: Throwable) {
+            android.util.Log.e("NleCommandRouter", "Fatal error during native command: $method", e)
             val code = codeFromThrowable(e)
             eventEmitter.emitError(
                 projectId        = args["projectId"] as? String,

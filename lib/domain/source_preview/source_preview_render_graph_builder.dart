@@ -8,7 +8,7 @@ import 'package:nle_editor/domain/source_preview/source_preview_models.dart';
 
 /// Inline schema constants (see render_graph_dto.dart for the canonical values).
 const _kRenderGraphSchema  = 'nle.render_graph';
-const _kRenderGraphVersion = 3;
+const _kRenderGraphVersion = 2;
 
 class SourcePreviewRenderGraphBuilder {
   const SourcePreviewRenderGraphBuilder();

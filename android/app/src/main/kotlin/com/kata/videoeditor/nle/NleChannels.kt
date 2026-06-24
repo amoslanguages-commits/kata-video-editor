@@ -67,6 +67,7 @@ object NleNativeEventType {
     const val PLAYBACK_STARTED  = "playback_started"
     const val PLAYBACK_PAUSED   = "playback_paused"
     const val PLAYHEAD_CHANGED  = "playhead_changed"
+    const val SEEK_COMPLETED    = "seek_completed"
 
     const val JOB_STARTED   = "job_started"
     const val JOB_PROGRESS  = "job_progress"
@@ -87,6 +88,7 @@ object NleNativeEventType {
     const val DEVICE_CAPABILITIES = "device_capabilities"
 
     const val PREVIEW_SURFACE_READY    = "preview_surface_ready"
+    const val PREVIEW_TEXTURE_CREATED  = "preview_texture_created"
     const val PREVIEW_SURFACE_ATTACHED = "preview_surface_attached"
     const val PREVIEW_SURFACE_RESIZED  = "preview_surface_resized"
     const val PREVIEW_SURFACE_DISPOSED = "preview_surface_disposed"

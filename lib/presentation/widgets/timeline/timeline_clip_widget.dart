@@ -441,7 +441,11 @@ class _TimelineClipWidgetState extends ConsumerState<TimelineClipWidget> {
               }
             }
 
-            widget.onDragPreviewEnd?.call();
+            if (widget.onDragPreviewEnd != null) {
+              widget.onDragPreviewEnd!.call();
+            }
+
+            if (!mounted) return;
 
             setState(() {
               _isDragging = false;
@@ -497,35 +501,36 @@ class _TimelineClipWidgetState extends ConsumerState<TimelineClipWidget> {
                     ),
 
                   // Subtle content preview overlay
-                  Positioned.fill(
-                    child: Container(
-                      color:
-                          Colors.black26, // 15% opacity overlay for legibility
-                      child: Row(
-                        children: [
-                          const SizedBox(width: 8),
-                          Icon(
-                            clipIcon,
-                            size: 14,
-                            color: Colors.white70,
-                          ),
-                          const SizedBox(width: 6),
-                          Expanded(
-                            child: Text(
-                              widget.clip.textContent ?? widget.clip.name,
-                              style: const TextStyle(
-                                color: Colors.white,
-                                fontSize: 10,
-                                fontWeight: FontWeight.bold,
-                              ),
-                              maxLines: 1,
-                              overflow: TextOverflow.ellipsis,
+                  if (displayWidthClamped > 35)
+                    Positioned.fill(
+                      child: Container(
+                        color:
+                            Colors.black26, // 15% opacity overlay for legibility
+                        child: Row(
+                          children: [
+                            const SizedBox(width: 8),
+                            Icon(
+                              clipIcon,
+                              size: 14,
+                              color: Colors.white70,
                             ),
-                          ),
-                        ],
+                            const SizedBox(width: 6),
+                            Expanded(
+                              child: Text(
+                                widget.clip.textContent ?? widget.clip.name,
+                                style: const TextStyle(
+                                  color: Colors.white,
+                                  fontSize: 10,
+                                  fontWeight: FontWeight.bold,
+                                ),
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                              ),
+                            ),
+                          ],
+                        ),
                       ),
                     ),
-                  ),
 
                   // Floating badge showing timecode changes
                   if (showBadge)

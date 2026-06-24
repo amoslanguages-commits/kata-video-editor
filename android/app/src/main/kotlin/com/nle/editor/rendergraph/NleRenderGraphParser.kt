@@ -141,8 +141,8 @@ class NleRenderGraphParser {
         return buildList {
             for (i in 0 until array.length()) {
                 val json = array.optJSONObject(i) ?: continue
-                val lutStack = NleRenderGraphLutParser.parseClipLutStack(json.optJSONObject("lutStack"))
-                val secondaryGrades = NleRenderGraphSecondaryGradeParser.parseStack(json.optJSONObject("secondaryGrades"))
+                val lutStack = NleRenderGraphLutParser.parseClipStack(json.optJSONObject("lutStack") ?: JSONObject())
+                val secondaryGrades = NleRenderGraphSecondaryGradeParser.parseClipStack(json.optJSONObject("secondaryGrades") ?: JSONObject())
                 add(
                     NleRenderClip(
                         id = json.optString("id", ""),
