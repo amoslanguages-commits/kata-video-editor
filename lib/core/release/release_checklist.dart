@@ -35,7 +35,7 @@ class ReleaseChecklistCatalog {
         ReleaseChecklistItem(
           id: 'prod_flavor_runs',
           title: 'Production flavor runs',
-          description: 'Run the app using main_prod.dart and confirm production config.',
+          description: 'Run the app using the prod flavor and confirm production config.',
         ),
         ReleaseChecklistItem(
           id: 'dev_tools_hidden',
@@ -55,18 +55,39 @@ class ReleaseChecklistCatalog {
       ],
     ),
     ReleaseChecklistGroup(
+      id: 'ci_gate',
+      title: 'CI & Release Candidate Gate',
+      items: [
+        ReleaseChecklistItem(
+          id: 'github_ci_green',
+          title: 'GitHub CI is green',
+          description: 'Confirm Flutter Android CI passes codegen, formatting, analyze, tests, and dev/staging debug builds.',
+        ),
+        ReleaseChecklistItem(
+          id: 'release_candidate_gate_green',
+          title: 'Release candidate gate passes',
+          description: 'Run the Release Candidate Gate workflow or dart run tool/release_candidate_gate.dart locally.',
+        ),
+        ReleaseChecklistItem(
+          id: 'prod_bundle_generated',
+          title: 'Production bundle generated',
+          description: 'Build the prod app bundle from the release candidate workflow or local Flutter command.',
+        ),
+      ],
+    ),
+    ReleaseChecklistGroup(
       id: 'android',
       title: 'Android Release',
       items: [
         ReleaseChecklistItem(
           id: 'android_signing_ready',
           title: 'Signing configured',
-          description: 'Confirm upload key, key.properties, and release signing config are ready.',
+          description: 'Confirm upload key, key.properties, and release signing config are ready locally or in CI secrets.',
         ),
         ReleaseChecklistItem(
           id: 'android_aab_builds',
           title: 'AAB builds',
-          description: 'Run flutter build appbundle for production flavor.',
+          description: 'Run flutter build appbundle --release --flavor prod -t lib/main.dart.',
         ),
         ReleaseChecklistItem(
           id: 'android_permissions_reviewed',
@@ -145,6 +166,27 @@ class ReleaseChecklistCatalog {
           id: 'missing_media_tested',
           title: 'Missing media tested',
           description: 'Confirm missing-media reconnect flow.',
+        ),
+      ],
+    ),
+    ReleaseChecklistGroup(
+      id: 'device_failure_matrix',
+      title: 'Device Failure Matrix',
+      items: [
+        ReleaseChecklistItem(
+          id: 'low_end_device_export',
+          title: 'Low-end device export tested',
+          description: 'Test a proxy-assisted export on a low-memory or older Android device.',
+        ),
+        ReleaseChecklistItem(
+          id: 'thermal_interruption_tested',
+          title: 'Thermal/interruption behavior tested',
+          description: 'Confirm export reports warnings or failure cleanly when interrupted or under thermal pressure.',
+        ),
+        ReleaseChecklistItem(
+          id: 'storage_full_tested',
+          title: 'Storage-full failure tested',
+          description: 'Confirm export failure is recoverable and cache cleanup remains available when storage is low.',
         ),
       ],
     ),
