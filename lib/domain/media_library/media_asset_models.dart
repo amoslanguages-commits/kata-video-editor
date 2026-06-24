@@ -79,25 +79,88 @@ class NleMediaAsset {
     required this.version,
   });
 
+  String? get originalMediaPath => _clean(originalPath);
+  String? get projectMediaPath => _clean(projectPath ?? resolvedPath);
+  String? get proxyMediaPath => _clean(proxyPath);
+
+  /// Highest-quality editable path controlled by the app when available.
+  String? get originalQualityPath => projectMediaPath ?? originalMediaPath;
+
+  /// Path used by preview/render/export after repository path selection.
   String? get resolvedEditPath {
     if (availability != NleMediaAvailability.available) return null;
-    return selectedMediaPath ?? resolvedPath ?? projectPath ?? originalPath;
+    return _clean(selectedMediaPath) ?? _clean(resolvedPath) ?? originalQualityPath;
   }
 
+  /// Full-resolution path used when proxies must be bypassed.
   String? get resolvedOriginalPath {
-    return resolvedPath ?? projectPath ?? originalPath;
+    if (availability != NleMediaAvailability.available) return null;
+    return _clean(resolvedPath) ?? originalQualityPath;
   }
+
+  bool get hasProxyFile => proxyMediaPath != null && proxyStatus == NleProxyStatus.ready;
 
   bool get isVideo => type == NleMediaAssetType.video;
   bool get isAudio => type == NleMediaAssetType.audio;
   bool get isImage => type == NleMediaAssetType.image;
   bool get isMissing => availability == NleMediaAvailability.missing;
   bool get isUsed => usageState != NleMediaUsageState.unused;
-  bool get hasProxyReady => proxyStatus == NleProxyStatus.ready &&
-      proxyPath != null &&
-      proxyPath!.trim().isNotEmpty;
+  bool get hasProxyReady => hasProxyFile;
 
   int get durationMicros => timecodeInfo.durationMicros;
+
+  bool get hasAnalysisData {
+    return fileInfo.hasFileIdentity ||
+        videoInfo.hasResolution ||
+        videoInfo.hasCodec ||
+        audioInfo.hasFormat ||
+        timecodeInfo.hasDuration;
+  }
+
+  NleMediaLifecycleStage get lifecycleStage {
+    switch (availability) {
+      case NleMediaAvailability.missing:
+        return NleMediaLifecycleStage.missing;
+      case NleMediaAvailability.offline:
+        return NleMediaLifecycleStage.offline;
+      case NleMediaAvailability.corrupted:
+        return NleMediaLifecycleStage.corrupted;
+      case NleMediaAvailability.available:
+        break;
+    }
+
+    switch (lifecycleState) {
+      case NleMediaLifecycleState.relinked:
+        return NleMediaLifecycleStage.relinked;
+      case NleMediaLifecycleState.missing:
+        return NleMediaLifecycleStage.missing;
+      case NleMediaLifecycleState.proxyReady:
+        return NleMediaLifecycleStage.proxyReady;
+      case NleMediaLifecycleState.proxyNeeded:
+        return NleMediaLifecycleStage.proxyNeeded;
+      case NleMediaLifecycleState.analyzed:
+      case NleMediaLifecycleState.imported:
+        break;
+    }
+
+    switch (proxyStatus) {
+      case NleProxyStatus.ready:
+        return NleMediaLifecycleStage.proxyReady;
+      case NleProxyStatus.generating:
+        return NleMediaLifecycleStage.proxyGenerating;
+      case NleProxyStatus.queued:
+        return NleMediaLifecycleStage.proxyQueued;
+      case NleProxyStatus.failed:
+      case NleProxyStatus.none:
+        if (isVideo && hasAnalysisData && proxyMediaPath == null) {
+          return NleMediaLifecycleStage.proxyNeeded;
+        }
+    }
+
+    return hasAnalysisData
+        ? NleMediaLifecycleStage.analyzed
+        : NleMediaLifecycleStage.imported;
+  }
 
   Map<String, dynamic> toJson() {
     return {
@@ -109,6 +172,7 @@ class NleMediaAsset {
       'storageMode': storageMode.name,
       'availability': availability.name,
       'lifecycleState': lifecycleState.name,
+      'lifecycleStage': lifecycleStage.name,
       'originalPath': originalPath,
       'projectPath': projectPath,
       'resolvedPath': resolvedPath,
@@ -252,6 +316,12 @@ class NleMediaAsset {
       updatedAt: updatedAt ?? DateTime.now(),
       version: version ?? this.version,
     );
+  }
+
+  static String? _clean(String? value) {
+    final trimmed = value?.trim();
+    if (trimmed == null || trimmed.isEmpty) return null;
+    return trimmed;
   }
 }
 
