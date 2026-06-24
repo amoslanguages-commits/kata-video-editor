@@ -8,7 +8,6 @@ import 'package:nle_editor/data/database/app_database.dart';
 import 'package:nle_editor/domain/device/device_capability_profile.dart';
 import 'package:nle_editor/domain/media_library/media_asset_models.dart';
 import 'package:nle_editor/domain/media_library/media_asset_value_models.dart';
-import 'package:nle_editor/domain/proxy/proxy_settings_models.dart';
 import 'package:nle_editor/domain/proxy/proxy_value_models.dart';
 import 'package:nle_editor/presentation/providers/editor_providers.dart';
 import 'package:nle_editor/presentation/widgets/device/device_capability_card.dart';
@@ -23,7 +22,8 @@ class ProControlCenterScreen extends ConsumerStatefulWidget {
   });
 
   @override
-  ConsumerState<ProControlCenterScreen> createState() => _ProControlCenterScreenState();
+  ConsumerState<ProControlCenterScreen> createState() =>
+      _ProControlCenterScreenState();
 }
 
 class _ProControlCenterScreenState extends ConsumerState<ProControlCenterScreen>
@@ -44,7 +44,7 @@ class _ProControlCenterScreenState extends ConsumerState<ProControlCenterScreen>
 
   @override
   Widget build(BuildContext context) {
-    final projectAsync = ref.watch(projectRepositoryProvider).watchProject(widget.projectId);
+    final projectFuture = ref.watch(projectRepositoryProvider).getProject(widget.projectId);
 
     return Scaffold(
       backgroundColor: AppTheme.editorBackground,
@@ -59,9 +59,14 @@ class _ProControlCenterScreenState extends ConsumerState<ProControlCenterScreen>
           ],
         ),
       ),
-      body: StreamBuilder<Project?>(
-        stream: projectAsync,
+      body: FutureBuilder<Project?>(
+        future: projectFuture,
         builder: (context, snapshot) {
+          if (snapshot.connectionState != ConnectionState.done) {
+            return const Center(
+              child: CircularProgressIndicator(color: AppTheme.accentPrimary),
+            );
+          }
           final project = snapshot.data;
           if (project == null) {
             return const Center(
@@ -102,7 +107,10 @@ class _ProExportPanel extends ConsumerWidget {
         const DeviceCapabilityCard(),
         const SizedBox(height: 16),
         profileAsync.when(
-          data: (profile) => _AdaptiveExportSummary(project: project, profile: profile),
+          data: (profile) => _AdaptiveExportSummary(
+            project: project,
+            profile: profile,
+          ),
           loading: () => const _ProCard(
             icon: Icons.memory_rounded,
             title: 'Adaptive export profile',
@@ -149,7 +157,10 @@ class _ProExportPanel extends ConsumerWidget {
                 const SizedBox(height: 10),
                 Text(
                   '${export.stage} • ${export.progress}%',
-                  style: const TextStyle(color: AppTheme.textSecondary, fontSize: 12),
+                  style: const TextStyle(
+                    color: AppTheme.textSecondary,
+                    fontSize: 12,
+                  ),
                 ),
                 const SizedBox(height: 10),
                 OutlinedButton.icon(
@@ -247,7 +258,10 @@ class _ExportPresetTile extends ConsumerWidget {
         ),
         title: Text(
           preset['label']?.toString() ?? presetKey,
-          style: const TextStyle(color: AppTheme.textPrimary, fontWeight: FontWeight.w800),
+          style: const TextStyle(
+            color: AppTheme.textPrimary,
+            fontWeight: FontWeight.w800,
+          ),
         ),
         subtitle: Text(
           clamped
@@ -290,8 +304,8 @@ class _ProProxyPanel extends ConsumerWidget {
     final controller = ref.read(proxyControllerProvider(projectId).notifier);
     final videoAssets = state.assets.where((asset) => asset.isVideo).toList();
     final ready = videoAssets.where((asset) => asset.proxyStatus == NleProxyStatus.ready).length;
-    final queued = state.jobs.where((job) => job.status.name == 'queued').length;
-    final running = state.jobs.where((job) => job.status.name == 'running' || job.status.name == 'generating').length;
+    final queued = state.jobs.where((job) => job.status == NleProxyGenerationStatus.queued).length;
+    final running = state.jobs.where((job) => job.status == NleProxyGenerationStatus.generating).length;
 
     if (state.loading) {
       return const Center(child: CircularProgressIndicator(color: AppTheme.accentPrimary));
@@ -663,6 +677,8 @@ int _estimateWidth(String aspectRatio, int height) {
 String _resolutionLabel(NleMediaAsset asset) {
   final width = asset.videoInfo.width;
   final height = asset.videoInfo.height;
-  if (width <= 0 || height <= 0) return TimeUtils.formatFileSize(asset.fileInfo.sizeBytes);
-  return '${width}×$height • ${TimeUtils.formatFileSize(asset.fileInfo.sizeBytes)}';
+  if (width <= 0 || height <= 0) {
+    return TimeUtils.formatFileSize(asset.fileInfo.fileSizeBytes);
+  }
+  return '${width}×$height • ${TimeUtils.formatFileSize(asset.fileInfo.fileSizeBytes)}';
 }
