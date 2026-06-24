@@ -46,6 +46,7 @@ class RenderGraphNativeMethods {
   static const String startExportJob = 'start_export_job';
   static const String cancelExportJob = 'cancel_export_job';
   static const String getSessionState = 'get_session_state';
+  static const String probeDeviceCapabilities = 'probe_device_capabilities';
 
   const RenderGraphNativeMethods._();
 }
