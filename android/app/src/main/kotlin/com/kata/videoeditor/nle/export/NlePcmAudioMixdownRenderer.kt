@@ -9,6 +9,7 @@ import java.io.File
 import java.io.FileOutputStream
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
+import kotlin.math.max
 import kotlin.math.min
 
 internal data class NleEncodedAacSample(
@@ -248,13 +249,38 @@ internal class NlePcmAudioMixdownRenderer {
         val clipTimelineStartUs = clip.timelineStartUs
         val clipTimelineEndUs = clip.timelineEndUs
 
-        if (windowEndUs <= clipTimelineStartUs || windowStartUs >= clipTimelineEndUs) return
+        // Compute timeline overlap between window and clip
+        val overlapTimelineStartUs = max(windowStartUs, clipTimelineStartUs)
+        val overlapTimelineEndUs = min(windowEndUs, clipTimelineEndUs)
+
+        if (overlapTimelineEndUs <= overlapTimelineStartUs) return
+
+        val safeSpeed = clip.speed.coerceAtLeast(0.01)
+
+        // Map timeline overlap to source range
+        val relativeTimelineStartUs = overlapTimelineStartUs - clipTimelineStartUs
+        val relativeTimelineEndUs = overlapTimelineEndUs - clipTimelineStartUs
+
+        val sourceWindowStartUs = (clip.sourceStartUs + (relativeTimelineStartUs * safeSpeed).toLong())
+            .coerceIn(clip.sourceStartUs, clip.sourceEndUs)
+
+        val sourceWindowEndUs = (clip.sourceStartUs + (relativeTimelineEndUs * safeSpeed).toLong())
+            .coerceIn(clip.sourceStartUs, clip.sourceEndUs)
+
+        if (sourceWindowEndUs <= sourceWindowStartUs) return
 
         val extractor = MediaExtractor()
         var decoder: MediaCodec? = null
         try {
             extractor.setDataSource(planned.sourcePath)
             extractor.selectTrack(planned.sourceTrackIndex)
+            
+            // Seek directly to the relevant source range
+            extractor.seekTo(
+                sourceWindowStartUs.coerceAtLeast(0L),
+                MediaExtractor.SEEK_TO_PREVIOUS_SYNC,
+            )
+
             val inputFormat = extractor.getTrackFormat(planned.sourceTrackIndex)
             val mime = inputFormat.getString(MediaFormat.KEY_MIME)
                 ?: throw IllegalStateException("Audio track mime is missing.")
@@ -280,19 +306,38 @@ internal class NlePcmAudioMixdownRenderer {
                         val inputBuffer = activeDecoder.getInputBuffer(inputIndex)
                             ?: throw IllegalStateException("Audio decoder input buffer was null.")
                         inputBuffer.clear()
-                        val size = extractor.readSampleData(inputBuffer, 0)
-                        if (size < 0) {
-                            activeDecoder.queueInputBuffer(inputIndex, 0, 0, 0L, MediaCodec.BUFFER_FLAG_END_OF_STREAM)
-                            inputDone = true
-                        } else {
+
+                        val sampleTime = extractor.sampleTime
+                        if (sampleTime < 0 || sampleTime > sourceWindowEndUs) {
                             activeDecoder.queueInputBuffer(
                                 inputIndex,
                                 0,
-                                size,
-                                extractor.sampleTime.coerceAtLeast(0L),
-                                extractor.sampleFlags,
+                                0,
+                                0L,
+                                MediaCodec.BUFFER_FLAG_END_OF_STREAM,
                             )
-                            extractor.advance()
+                            inputDone = true
+                        } else {
+                            val size = extractor.readSampleData(inputBuffer, 0)
+                            if (size < 0) {
+                                activeDecoder.queueInputBuffer(
+                                    inputIndex,
+                                    0,
+                                    0,
+                                    0L,
+                                    MediaCodec.BUFFER_FLAG_END_OF_STREAM,
+                                )
+                                inputDone = true
+                            } else {
+                                activeDecoder.queueInputBuffer(
+                                    inputIndex,
+                                    0,
+                                    size,
+                                    sampleTime.coerceAtLeast(0L),
+                                    extractor.sampleFlags,
+                                )
+                                extractor.advance()
+                            }
                         }
                     }
                 }
