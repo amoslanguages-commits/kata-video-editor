@@ -14,11 +14,13 @@ class RenderGraphAssetMapper {
     final timecodeInfo = _decodeMap(row.timecodeInfoJson);
 
     final type = row.type.toLowerCase();
-    final duration = (timecodeInfo['durationMicros'] as num?)?.toInt() ?? 0;
-    final width = (videoInfo['width'] as num?)?.toInt() ?? 0;
-    final height = (videoInfo['height'] as num?)?.toInt() ?? 0;
-    final fps = (videoInfo['fps'] as num?)?.toDouble() ?? 0.0;
-    final codec = videoInfo['codec']?.toString() ?? audioInfo['codec']?.toString() ?? '';
+    final duration = _int(timecodeInfo['durationMicros']);
+    final width = _int(videoInfo['width']);
+    final height = _int(videoInfo['height']);
+    final fps = _double(videoInfo['fps']);
+    final codec = videoInfo['codec']?.toString().trim().isNotEmpty == true
+        ? videoInfo['codec'].toString()
+        : audioInfo['codec']?.toString();
 
     return RenderGraphAssetDto(
       id: row.id,
@@ -26,6 +28,9 @@ class RenderGraphAssetMapper {
       originalPath: row.originalPath,
       projectPath: row.projectPath,
       proxyPath: row.proxyPath,
+      resolvedPath: null,
+      sourcePolicy: 'unresolved',
+      usedProxy: false,
       thumbnailPath: row.thumbnailPath,
       displayName: row.displayName,
       durationMicros: duration,
@@ -33,7 +38,7 @@ class RenderGraphAssetMapper {
       height: height,
       hasVideo: type == 'video' || type == 'image',
       hasAudio: type == 'video' || type == 'audio',
-      codec: codec.isEmpty ? null : codec,
+      codec: codec?.isEmpty == true ? null : codec,
       frameRate: fps == 0.0 ? null : fps,
       rotationDegrees: 0,
     );
@@ -112,6 +117,18 @@ class RenderGraphAssetMapper {
       if (decoded is List) return decoded.map((item) => item.toString()).toList();
     } catch (_) {}
     return const <String>[];
+  }
+
+  int _int(Object? value) {
+    if (value is int) return value;
+    if (value is num) return value.toInt();
+    return int.tryParse(value?.toString() ?? '') ?? 0;
+  }
+
+  double _double(Object? value) {
+    if (value is double) return value;
+    if (value is num) return value.toDouble();
+    return double.tryParse(value?.toString() ?? '') ?? 0.0;
   }
 
   T _enumByName<T extends Enum>(List<T> values, Object? name, T fallback) {
