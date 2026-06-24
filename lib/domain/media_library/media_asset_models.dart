@@ -12,6 +12,8 @@ class NleMediaAsset {
 
   final String? originalPath;
   final String? projectPath;
+  final String? resolvedPath;
+  final String? selectedMediaPath;
   final String? thumbnailPath;
   final String? waveformCacheId;
   final String? proxyPath;
@@ -41,6 +43,8 @@ class NleMediaAsset {
     required this.availability,
     this.originalPath,
     this.projectPath,
+    this.resolvedPath,
+    this.selectedMediaPath,
     this.thumbnailPath,
     this.waveformCacheId,
     this.proxyPath,
@@ -59,21 +63,19 @@ class NleMediaAsset {
 
   String? get originalMediaPath => _clean(originalPath);
   String? get projectMediaPath => _clean(projectPath);
+  String? get resolvedMediaPath => _clean(resolvedPath) ?? projectMediaPath ?? originalMediaPath;
   String? get proxyMediaPath => _clean(proxyPath);
 
-  /// Highest-quality editable path controlled by the app when available.
-  String? get originalQualityPath => projectMediaPath ?? originalMediaPath;
+  String? get originalQualityPath => resolvedMediaPath;
 
-  /// Path used for edit/preview when no proxy policy overrides it.
   String? get resolvedEditPath {
     if (availability != NleMediaAvailability.available) return null;
-    return originalQualityPath;
+    return _clean(selectedMediaPath) ?? resolvedMediaPath;
   }
 
-  /// Path used for original-quality export.
   String? get resolvedOriginalPath {
     if (availability != NleMediaAvailability.available) return null;
-    return originalQualityPath;
+    return resolvedMediaPath;
   }
 
   bool get hasProxyFile => proxyMediaPath != null && proxyStatus == NleProxyStatus.ready;
@@ -136,6 +138,8 @@ class NleMediaAsset {
       'availability': availability.name,
       'originalPath': originalPath,
       'projectPath': projectPath,
+      'resolvedPath': resolvedPath,
+      'selectedMediaPath': selectedMediaPath,
       'thumbnailPath': thumbnailPath,
       'waveformCacheId': waveformCacheId,
       'proxyPath': proxyPath,
@@ -181,6 +185,8 @@ class NleMediaAsset {
       ),
       originalPath: json['originalPath']?.toString(),
       projectPath: json['projectPath']?.toString(),
+      resolvedPath: json['resolvedPath']?.toString(),
+      selectedMediaPath: json['selectedMediaPath']?.toString(),
       thumbnailPath: json['thumbnailPath']?.toString(),
       waveformCacheId: json['waveformCacheId']?.toString(),
       proxyPath: json['proxyPath']?.toString(),
@@ -224,6 +230,8 @@ class NleMediaAsset {
     NleMediaAvailability? availability,
     String? originalPath,
     String? projectPath,
+    String? resolvedPath,
+    String? selectedMediaPath,
     String? thumbnailPath,
     String? waveformCacheId,
     String? proxyPath,
@@ -248,6 +256,8 @@ class NleMediaAsset {
       availability: availability ?? this.availability,
       originalPath: originalPath ?? this.originalPath,
       projectPath: projectPath ?? this.projectPath,
+      resolvedPath: resolvedPath ?? this.resolvedPath,
+      selectedMediaPath: selectedMediaPath ?? this.selectedMediaPath,
       thumbnailPath: thumbnailPath ?? this.thumbnailPath,
       waveformCacheId: waveformCacheId ?? this.waveformCacheId,
       proxyPath: proxyPath ?? this.proxyPath,

@@ -52,6 +52,8 @@ extension NleMediaAssetLifecycle on NleMediaAsset {
         'proxyStatus': proxyStatus.name,
         'hasOriginalPath': originalPath?.trim().isNotEmpty == true,
         'hasProjectPath': projectPath?.trim().isNotEmpty == true,
+        'hasResolvedPath': resolvedPath?.trim().isNotEmpty == true,
+        'hasSelectedMediaPath': selectedMediaPath?.trim().isNotEmpty == true,
         'hasProxyPath': proxyPath?.trim().isNotEmpty == true,
       };
 }
@@ -70,7 +72,7 @@ extension NleCanonicalMediaDatabaseLifecycle on AppDatabase {
   }) async {
     await (update(mediaAssets)..where((tbl) => tbl.id.equals(assetId))).write(
       MediaAssetsCompanion(
-        originalPath: Value(originalPath),
+        projectPath: Value(originalPath),
         availability: Value(availability),
         updatedAt: Value(DateTime.now()),
       ),

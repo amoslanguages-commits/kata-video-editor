@@ -22,15 +22,32 @@ class RenderGraphAssetMapper {
         ? videoInfo['codec'].toString()
         : audioInfo['codec']?.toString();
 
+    final availability = _enumByName(
+      NleMediaAvailability.values,
+      row.availability,
+      NleMediaAvailability.available,
+    );
+    final proxyStatus = _enumByName(
+      NleProxyStatus.values,
+      row.proxyStatus,
+      NleProxyStatus.none,
+    );
+    final fullResolutionPath = availability == NleMediaAvailability.available
+        ? _firstNonBlank(row.projectPath, row.originalPath)
+        : null;
+    final proxyPath = _clean(row.proxyPath);
+    final usedProxy = proxyStatus == NleProxyStatus.ready && proxyPath != null;
+    final selectedMediaPath = usedProxy ? proxyPath : fullResolutionPath;
+
     return RenderGraphAssetDto(
       id: row.id,
       type: type,
       originalPath: row.originalPath,
       projectPath: row.projectPath,
       proxyPath: row.proxyPath,
-      resolvedPath: null,
-      sourcePolicy: 'unresolved',
-      usedProxy: false,
+      resolvedPath: selectedMediaPath,
+      sourcePolicy: usedProxy ? 'proxy_ready' : 'full_resolution',
+      usedProxy: usedProxy,
       thumbnailPath: row.thumbnailPath,
       displayName: row.displayName,
       durationMicros: duration,
@@ -50,46 +67,41 @@ class RenderGraphAssetMapper {
     final audioInfo = _decodeMap(row.audioInfoJson);
     final timecodeInfo = _decodeMap(row.timecodeInfoJson);
     final tags = _decodeStringList(row.tagsJson);
+    final availability = _enumByName(
+      NleMediaAvailability.values,
+      row.availability,
+      NleMediaAvailability.available,
+    );
+    final proxyStatus = _enumByName(
+      NleProxyStatus.values,
+      row.proxyStatus,
+      NleProxyStatus.none,
+    );
+    final fullResolutionPath = availability == NleMediaAvailability.available
+        ? _firstNonBlank(row.projectPath, row.originalPath)
+        : null;
+    final proxyPath = _clean(row.proxyPath);
+    final selectedMediaPath = proxyStatus == NleProxyStatus.ready && proxyPath != null
+        ? proxyPath
+        : fullResolutionPath;
 
     return NleMediaAsset(
       id: row.id,
       projectId: row.projectId,
       displayName: row.displayName,
-      type: _enumByName(
-        NleMediaAssetType.values,
-        row.type,
-        NleMediaAssetType.unknown,
-      ),
-      importSource: _enumByName(
-        NleMediaImportSource.values,
-        row.importSource,
-        NleMediaImportSource.filePicker,
-      ),
-      storageMode: _enumByName(
-        NleMediaStorageMode.values,
-        row.storageMode,
-        NleMediaStorageMode.copiedIntoProject,
-      ),
-      availability: _enumByName(
-        NleMediaAvailability.values,
-        row.availability,
-        NleMediaAvailability.available,
-      ),
+      type: _enumByName(NleMediaAssetType.values, row.type, NleMediaAssetType.unknown),
+      importSource: _enumByName(NleMediaImportSource.values, row.importSource, NleMediaImportSource.filePicker),
+      storageMode: _enumByName(NleMediaStorageMode.values, row.storageMode, NleMediaStorageMode.copiedIntoProject),
+      availability: availability,
       originalPath: row.originalPath,
       projectPath: row.projectPath,
+      resolvedPath: fullResolutionPath,
+      selectedMediaPath: selectedMediaPath,
       thumbnailPath: row.thumbnailPath,
       waveformCacheId: row.waveformCacheId,
       proxyPath: row.proxyPath,
-      proxyStatus: _enumByName(
-        NleProxyStatus.values,
-        row.proxyStatus,
-        NleProxyStatus.none,
-      ),
-      usageState: _enumByName(
-        NleMediaUsageState.values,
-        row.usageState,
-        NleMediaUsageState.unused,
-      ),
+      proxyStatus: proxyStatus,
+      usageState: _enumByName(NleMediaUsageState.values, row.usageState, NleMediaUsageState.unused),
       fileInfo: NleMediaFileInfo.fromJson(fileInfo),
       videoInfo: NleMediaVideoInfo.fromJson(videoInfo),
       audioInfo: NleMediaAudioInfo.fromJson(audioInfo),
@@ -131,14 +143,24 @@ class RenderGraphAssetMapper {
     return double.tryParse(value?.toString() ?? '') ?? 0.0;
   }
 
+  String? _firstNonBlank(String? first, [String? second]) {
+    final firstClean = _clean(first);
+    if (firstClean != null) return firstClean;
+    return _clean(second);
+  }
+
+  String? _clean(String? value) {
+    final trimmed = value?.trim();
+    if (trimmed == null || trimmed.isEmpty) return null;
+    return trimmed;
+  }
+
   T _enumByName<T extends Enum>(List<T> values, Object? name, T fallback) {
     final string = name?.toString();
     if (string == null) return fallback;
-
     for (final value in values) {
       if (value.name == string) return value;
     }
-
     return fallback;
   }
 }
