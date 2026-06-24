@@ -26,6 +26,15 @@ enum NleMediaAvailability {
   corrupted,
 }
 
+enum NleMediaLifecycleState {
+  imported,
+  analyzed,
+  proxyNeeded,
+  proxyReady,
+  missing,
+  relinked,
+}
+
 enum NleMediaSortMode {
   newest,
   oldest,
@@ -58,19 +67,6 @@ enum NleMediaUsageState {
   partiallyUsed,
 }
 
-enum NleMediaLifecycleStage {
-  imported,
-  analyzed,
-  proxyNeeded,
-  proxyQueued,
-  proxyGenerating,
-  proxyReady,
-  missing,
-  offline,
-  corrupted,
-  relinked,
-}
-
 class NleMediaTimecodeInfo {
   final double fps;
   final int durationMicros;
@@ -86,8 +82,6 @@ class NleMediaTimecodeInfo {
       : fps = 30.0,
         durationMicros = 0,
         startTimecodeMicros = 0;
-
-  bool get hasDuration => durationMicros > 0;
 
   Map<String, dynamic> toJson() {
     return {
@@ -133,7 +127,6 @@ class NleMediaVideoInfo {
         hasHdr = false;
 
   bool get hasResolution => width > 0 && height > 0;
-  bool get hasCodec => codec.trim().isNotEmpty;
 
   String get resolutionLabel {
     if (!hasResolution) return 'Unknown';
@@ -182,8 +175,6 @@ class NleMediaAudioInfo {
         codec = '',
         bitrate = 0;
 
-  bool get hasFormat => sampleRate > 0 || channelCount > 0 || codec.trim().isNotEmpty;
-
   Map<String, dynamic> toJson() {
     return {
       'sampleRate': sampleRate,
@@ -227,8 +218,6 @@ class NleMediaFileInfo {
         checksum = null,
         fileCreatedAt = null,
         fileModifiedAt = null;
-
-  bool get hasFileIdentity => fileName.trim().isNotEmpty || fileSizeBytes > 0;
 
   Map<String, dynamic> toJson() {
     return {
