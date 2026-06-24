@@ -9,9 +9,28 @@ class NleMediaAsset {
   final NleMediaImportSource importSource;
   final NleMediaStorageMode storageMode;
   final NleMediaAvailability availability;
+  final NleMediaLifecycleState lifecycleState;
 
+  /// The immutable user/source location captured at import time.
+  ///
+  /// Never overwrite this during proxy generation, cache moves, render graph
+  /// building, export, missing-media checks, or relink operations.
   final String? originalPath;
+
+  /// The durable full-resolution path currently owned by the project, when the
+  /// media was copied into the local project folder.
   final String? projectPath;
+
+  /// The full-resolution path the app should use after availability/relink
+  /// resolution. This is separate from [originalPath] so relink does not erase
+  /// the original source path.
+  final String? resolvedPath;
+
+  /// The concrete path selected for the current media operation. Render/export
+  /// code should open this field, not [originalPath]. It may point at a proxy
+  /// when proxies are ready and preferred.
+  final String? selectedMediaPath;
+
   final String? thumbnailPath;
   final String? waveformCacheId;
   final String? proxyPath;
@@ -39,8 +58,11 @@ class NleMediaAsset {
     required this.importSource,
     required this.storageMode,
     required this.availability,
+    this.lifecycleState = NleMediaLifecycleState.imported,
     this.originalPath,
     this.projectPath,
+    this.resolvedPath,
+    this.selectedMediaPath,
     this.thumbnailPath,
     this.waveformCacheId,
     this.proxyPath,
@@ -59,11 +81,11 @@ class NleMediaAsset {
 
   String? get resolvedEditPath {
     if (availability != NleMediaAvailability.available) return null;
-    return projectPath ?? originalPath;
+    return selectedMediaPath ?? resolvedPath ?? projectPath ?? originalPath;
   }
 
   String? get resolvedOriginalPath {
-    return projectPath ?? originalPath;
+    return resolvedPath ?? projectPath ?? originalPath;
   }
 
   bool get isVideo => type == NleMediaAssetType.video;
@@ -71,6 +93,9 @@ class NleMediaAsset {
   bool get isImage => type == NleMediaAssetType.image;
   bool get isMissing => availability == NleMediaAvailability.missing;
   bool get isUsed => usageState != NleMediaUsageState.unused;
+  bool get hasProxyReady => proxyStatus == NleProxyStatus.ready &&
+      proxyPath != null &&
+      proxyPath!.trim().isNotEmpty;
 
   int get durationMicros => timecodeInfo.durationMicros;
 
@@ -83,8 +108,11 @@ class NleMediaAsset {
       'importSource': importSource.name,
       'storageMode': storageMode.name,
       'availability': availability.name,
+      'lifecycleState': lifecycleState.name,
       'originalPath': originalPath,
       'projectPath': projectPath,
+      'resolvedPath': resolvedPath,
+      'selectedMediaPath': selectedMediaPath,
       'thumbnailPath': thumbnailPath,
       'waveformCacheId': waveformCacheId,
       'proxyPath': proxyPath,
@@ -127,8 +155,15 @@ class NleMediaAsset {
         json['availability'],
         NleMediaAvailability.available,
       ),
+      lifecycleState: _enumByName(
+        NleMediaLifecycleState.values,
+        json['lifecycleState'],
+        NleMediaLifecycleState.imported,
+      ),
       originalPath: json['originalPath']?.toString(),
       projectPath: json['projectPath']?.toString(),
+      resolvedPath: json['resolvedPath']?.toString(),
+      selectedMediaPath: json['selectedMediaPath']?.toString(),
       thumbnailPath: json['thumbnailPath']?.toString(),
       waveformCacheId: json['waveformCacheId']?.toString(),
       proxyPath: json['proxyPath']?.toString(),
@@ -170,8 +205,11 @@ class NleMediaAsset {
     String? displayName,
     NleMediaAssetType? type,
     NleMediaAvailability? availability,
+    NleMediaLifecycleState? lifecycleState,
     String? originalPath,
     String? projectPath,
+    String? resolvedPath,
+    String? selectedMediaPath,
     String? thumbnailPath,
     String? waveformCacheId,
     String? proxyPath,
@@ -194,8 +232,11 @@ class NleMediaAsset {
       importSource: importSource,
       storageMode: storageMode,
       availability: availability ?? this.availability,
+      lifecycleState: lifecycleState ?? this.lifecycleState,
       originalPath: originalPath ?? this.originalPath,
       projectPath: projectPath ?? this.projectPath,
+      resolvedPath: resolvedPath ?? this.resolvedPath,
+      selectedMediaPath: selectedMediaPath ?? this.selectedMediaPath,
       thumbnailPath: thumbnailPath ?? this.thumbnailPath,
       waveformCacheId: waveformCacheId ?? this.waveformCacheId,
       proxyPath: proxyPath ?? this.proxyPath,
