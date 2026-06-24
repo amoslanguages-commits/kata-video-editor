@@ -38,7 +38,7 @@ class HdrOutputRepository {
 
   Future<NleHdrOutputSettings> setOutputMode(String projectId, NleOutputColorMode mode) async {
     final current = await getSettings(projectId);
-    
+
     // Automatically match transfer function and bit depth based on output mode.
     NleHdrTransferFunction tf;
     NleOutputBitDepth bitDepth;
@@ -56,7 +56,6 @@ class HdrOutputRepository {
       case NleOutputColorMode.srgbSdr:
       case NleOutputColorMode.displayP3Sdr:
       case NleOutputColorMode.rec2020Sdr:
-      default:
         tf = NleHdrTransferFunction.sdr;
         bitDepth = NleOutputBitDepth.eightBit;
         break;
