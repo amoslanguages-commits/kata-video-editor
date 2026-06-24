@@ -1,5 +1,4 @@
 import 'dart:convert';
-import 'package:drift/drift.dart';
 
 import 'package:nle_editor/data/database/app_database.dart' as db;
 import 'package:nle_editor/domain/keyframes/default_keyframe_property_factory.dart';
@@ -81,30 +80,36 @@ class KeyframeRepository {
     );
   }
 
-  Future<void> saveTrack(NleKeyframeTrack track) {
-    return database.updateClipKeyframeTrackJson(
+  Future<void> saveTrack(NleKeyframeTrack track) async {
+    await database.updateClipKeyframeTrackJson(
       clipId: track.ownerId,
       keyframeTrackJson: jsonEncode(track.toJson()),
     );
   }
 
-  Future<void> clearTrack(String clipId) {
-    return database.updateClipKeyframeTrackJson(
+  Future<NleKeyframeTrack> updateKeyframeTrack({
+    required String clipId,
+    required String clipType,
+    required int clipDurationMicros,
+    required NleKeyframeTrack Function(NleKeyframeTrack current) transform,
+  }) async {
+    final current = await getTrackForClip(
       clipId: clipId,
-      keyframeTrackJson: '',
+      clipType: clipType,
+      clipDurationMicros: clipDurationMicros,
     );
+
+    final updated = transform(current).copyWith(version: current.version + 1);
+    await saveTrack(updated);
+    return updated;
   }
 
   NleKeyframeOwnerType _ownerTypeForClip(String clipType) {
     switch (clipType) {
-      case 'title':
+      case 'text':
         return NleKeyframeOwnerType.title;
-      case 'overlay':
-        return NleKeyframeOwnerType.overlay;
-      case 'audio':
-        return NleKeyframeOwnerType.audioClip;
       default:
-        return NleKeyframeOwnerType.clip;
+        return NleKeyframeOwnerType.overlay;
     }
   }
 }
