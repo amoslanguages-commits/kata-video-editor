@@ -1,43 +1,30 @@
 import 'dart:convert';
+
 import 'package:nle_editor/data/database/app_database.dart' as db;
-import 'package:nle_editor/domain/rendering/render_graph_dto.dart';
 import 'package:nle_editor/domain/media_library/media_asset_models.dart';
 import 'package:nle_editor/domain/media_library/media_asset_value_models.dart';
-import 'package:nle_editor/domain/proxy/proxy_value_models.dart';
+import 'package:nle_editor/domain/rendering/render_graph_dto.dart';
 
 class RenderGraphAssetMapper {
   const RenderGraphAssetMapper();
 
   RenderGraphAssetDto fromDb(db.MediaAsset row) {
-    Map<String, dynamic> videoInfo = {};
-    Map<String, dynamic> audioInfo = {};
-    Map<String, dynamic> timecodeInfo = {};
-    Map<String, dynamic> fileInfo = {};
-
-    try {
-      videoInfo = jsonDecode(row.videoInfoJson) as Map<String, dynamic>;
-    } catch (_) {}
-    try {
-      audioInfo = jsonDecode(row.audioInfoJson) as Map<String, dynamic>;
-    } catch (_) {}
-    try {
-      timecodeInfo = jsonDecode(row.timecodeInfoJson) as Map<String, dynamic>;
-    } catch (_) {}
-    try {
-      fileInfo = jsonDecode(row.fileInfoJson) as Map<String, dynamic>;
-    } catch (_) {}
+    final videoInfo = _decodeMap(row.videoInfoJson);
+    final audioInfo = _decodeMap(row.audioInfoJson);
+    final timecodeInfo = _decodeMap(row.timecodeInfoJson);
 
     final type = row.type.toLowerCase();
-    final duration = timecodeInfo['durationMicros'] as int? ?? 0;
-    final width = videoInfo['width'] as int? ?? 0;
-    final height = videoInfo['height'] as int? ?? 0;
+    final duration = (timecodeInfo['durationMicros'] as num?)?.toInt() ?? 0;
+    final width = (videoInfo['width'] as num?)?.toInt() ?? 0;
+    final height = (videoInfo['height'] as num?)?.toInt() ?? 0;
     final fps = (videoInfo['fps'] as num?)?.toDouble() ?? 0.0;
-    final codec = videoInfo['codec'] as String? ?? audioInfo['codec'] as String? ?? '';
+    final codec = videoInfo['codec']?.toString() ?? audioInfo['codec']?.toString() ?? '';
 
     return RenderGraphAssetDto(
       id: row.id,
       type: type,
-      originalPath: row.projectPath ?? row.originalPath,
+      originalPath: row.originalPath,
+      projectPath: row.projectPath,
       proxyPath: row.proxyPath,
       thumbnailPath: row.thumbnailPath,
       displayName: row.displayName,
@@ -53,6 +40,12 @@ class RenderGraphAssetMapper {
   }
 
   NleMediaAsset toMediaAsset(db.MediaAsset row) {
+    final fileInfo = _decodeMap(row.fileInfoJson);
+    final videoInfo = _decodeMap(row.videoInfoJson);
+    final audioInfo = _decodeMap(row.audioInfoJson);
+    final timecodeInfo = _decodeMap(row.timecodeInfoJson);
+    final tags = _decodeStringList(row.tagsJson);
+
     return NleMediaAsset(
       id: row.id,
       projectId: row.projectId,
@@ -92,33 +85,36 @@ class RenderGraphAssetMapper {
         row.usageState,
         NleMediaUsageState.unused,
       ),
-      fileInfo: NleMediaFileInfo.fromJson(
-        Map<String, dynamic>.from(jsonDecode(row.fileInfoJson) as Map),
-      ),
-      videoInfo: NleMediaVideoInfo.fromJson(
-        Map<String, dynamic>.from(jsonDecode(row.videoInfoJson) as Map),
-      ),
-      audioInfo: NleMediaAudioInfo.fromJson(
-        Map<String, dynamic>.from(jsonDecode(row.audioInfoJson) as Map),
-      ),
-      timecodeInfo: NleMediaTimecodeInfo.fromJson(
-        Map<String, dynamic>.from(jsonDecode(row.timecodeInfoJson) as Map),
-      ),
+      fileInfo: NleMediaFileInfo.fromJson(fileInfo),
+      videoInfo: NleMediaVideoInfo.fromJson(videoInfo),
+      audioInfo: NleMediaAudioInfo.fromJson(audioInfo),
+      timecodeInfo: NleMediaTimecodeInfo.fromJson(timecodeInfo),
       notes: row.notes,
-      tags: (jsonDecode(row.tagsJson) as List)
-          .map((item) => item.toString())
-          .toList(),
+      tags: tags,
       importedAt: row.importedAt,
       updatedAt: row.updatedAt,
       version: row.version,
     );
   }
 
-  T _enumByName<T extends Enum>(
-    List<T> values,
-    Object? name,
-    T fallback,
-  ) {
+  Map<String, dynamic> _decodeMap(String raw) {
+    try {
+      final decoded = jsonDecode(raw);
+      if (decoded is Map<String, dynamic>) return Map<String, dynamic>.from(decoded);
+      if (decoded is Map) return decoded.map((key, value) => MapEntry(key.toString(), value));
+    } catch (_) {}
+    return const <String, dynamic>{};
+  }
+
+  List<String> _decodeStringList(String raw) {
+    try {
+      final decoded = jsonDecode(raw);
+      if (decoded is List) return decoded.map((item) => item.toString()).toList();
+    } catch (_) {}
+    return const <String>[];
+  }
+
+  T _enumByName<T extends Enum>(List<T> values, Object? name, T fallback) {
     final string = name?.toString();
     if (string == null) return fallback;
 
