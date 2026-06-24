@@ -1,3 +1,9 @@
+enum MediaSourcePolicy {
+  original,
+  proxy,
+  automatic,
+}
+
 enum NleProxyGenerationStatus {
   none,
   queued,
