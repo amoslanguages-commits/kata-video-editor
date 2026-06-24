@@ -44,11 +44,26 @@ class NleEditorPlugin(
                     ?.associate { it.key.toString() to it.value }
                     ?: emptyMap()
 
-                val response = commandRouter.route(
-                    method = call.method,
-                    args   = args
-                )
-                result.success(response)
+                try {
+                    NleNativeBridgeContract.requireCompatibleArgs(call.method, args)
+                    val response = commandRouter.route(
+                        method = call.method,
+                        args   = args
+                    )
+                    result.success(response)
+                } catch (error: Throwable) {
+                    result.success(
+                        mapOf(
+                            "success" to false,
+                            "method" to call.method,
+                            "error" to mapOf(
+                                "code" to NleNativeErrorCode.INVALID_ARGUMENTS,
+                                "message" to "The native bridge rejected this command.",
+                                "technicalMessage" to error.message
+                            )
+                        )
+                    )
+                }
             }
         }
 

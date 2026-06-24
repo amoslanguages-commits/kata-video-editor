@@ -1,6 +1,15 @@
 package com.kata.videoeditor.nle.export
 
 /**
+ * Version marker copied from the Flutter render graph contract.
+ */
+data class NleTrueExportGraphContract(
+    val schema: String,
+    val version: Int,
+    val source: String? = null,
+)
+
+/**
  * Source asset used by the export pipeline.
  */
 data class NleTrueExportAsset(
@@ -85,6 +94,11 @@ data class NleTrueExportTimeline(
     val backgroundColor: FloatArray,
     val assetsById: Map<String, NleTrueExportAsset>,
     val visualClips: List<NleTrueExportClip>,
+    val contract: NleTrueExportGraphContract = NleTrueExportGraphContract(
+        schema = "nle.render_graph",
+        version = 2,
+        source = null,
+    ),
 ) {
     /**
      * Helper to determine z-order of a clip.
