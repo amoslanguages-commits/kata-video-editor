@@ -9,6 +9,7 @@ import 'package:nle_editor/domain/device/device_capability_profile.dart';
 import 'package:nle_editor/domain/media_library/media_asset_models.dart';
 import 'package:nle_editor/domain/media_library/media_asset_value_models.dart';
 import 'package:nle_editor/domain/proxy/proxy_value_models.dart';
+import 'package:nle_editor/presentation/controllers/proxy_controller.dart';
 import 'package:nle_editor/presentation/providers/editor_providers.dart';
 import 'package:nle_editor/presentation/widgets/device/device_capability_card.dart';
 import 'package:nle_editor/presentation/widgets/storage/project_storage_panel.dart';
