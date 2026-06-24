@@ -45,12 +45,18 @@ internal class NleCompositedAudioTrackPlanner {
     }
 
     private fun resolveAssetPath(asset: NleRenderAsset, preferProxy: Boolean): String? {
-        asset.resolvedPath?.takeIf { it.isNotBlank() }?.let { return it }
-        return if (preferProxy) {
-            asset.proxyPath?.takeIf { it.isNotBlank() } ?: asset.projectPath?.takeIf { it.isNotBlank() } ?: asset.originalPath?.takeIf { it.isNotBlank() }
-        } else {
-            asset.projectPath?.takeIf { it.isNotBlank() } ?: asset.originalPath?.takeIf { it.isNotBlank() } ?: asset.proxyPath?.takeIf { it.isNotBlank() }
+        if (preferProxy) {
+            asset.proxyPath?.takeIf { it.isNotBlank() }?.let { return it }
+            if (asset.usedProxy) asset.resolvedPath?.takeIf { it.isNotBlank() }?.let { return it }
+            asset.projectPath?.takeIf { it.isNotBlank() }?.let { return it }
+            asset.originalPath?.takeIf { it.isNotBlank() }?.let { return it }
+            return asset.resolvedPath?.takeIf { it.isNotBlank() }
         }
+
+        asset.resolvedPath?.takeIf { it.isNotBlank() }?.let { return it }
+        asset.projectPath?.takeIf { it.isNotBlank() }?.let { return it }
+        asset.originalPath?.takeIf { it.isNotBlank() }?.let { return it }
+        return asset.proxyPath?.takeIf { it.isNotBlank() }
     }
 
     private fun orderedAudioTracks(tracks: List<NleRenderTrack>): List<NleRenderTrack> {
