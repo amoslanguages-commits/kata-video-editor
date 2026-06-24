@@ -1,11 +1,7 @@
 package com.kata.videoeditor.nle.export
 
-import kotlin.math.max
-
 /**
- * Source asset (video/image file) used by the V2 true-decoder export pipeline.
- *
- * [path] is the file-system path or `content://` URI for [MediaExtractor].
+ * Source asset used by the export pipeline.
  */
 data class NleTrueExportAsset(
     val id: String,
@@ -15,7 +11,13 @@ data class NleTrueExportAsset(
     val durationUs: Long,
     val hasVideo: Boolean,
     val hasAudio: Boolean,
-)
+    val originalPath: String? = null,
+    val resolvedPath: String? = null,
+    val selectedMediaPath: String = path,
+    val usingProxy: Boolean = false,
+) {
+    val decoderPath: String get() = selectedMediaPath
+}
 
 /**
  * A single clip on the timeline that carries transform, color, and speed metadata.
