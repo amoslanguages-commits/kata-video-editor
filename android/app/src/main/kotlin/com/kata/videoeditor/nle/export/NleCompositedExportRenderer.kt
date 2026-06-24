@@ -16,6 +16,7 @@ import com.nle.editor.preview.NlePreviewVideoTextureSource
 import com.nle.editor.rendergraph.NleRenderGraphParser
 import org.json.JSONObject
 import java.io.File
+import java.io.RandomAccessFile
 import java.nio.ByteBuffer
 import kotlin.math.max
 
@@ -219,6 +220,7 @@ class NleCompositedExportRenderer(
             try { encoder?.release() } catch (_: Throwable) {}
             try { muxer?.stop() } catch (_: Throwable) {}
             try { muxer?.release() } catch (_: Throwable) {}
+            try { audioMixdown?.deleteTempFile() } catch (_: Throwable) {}
         }
 
         if (!outputFile.exists() || outputFile.length() <= 0L) {
@@ -282,11 +284,25 @@ class NleCompositedExportRenderer(
         token: NleExportCancellationToken,
     ) {
         val info = MediaCodec.BufferInfo()
-        for (sample in mixdown.samples) {
-            if (token.cancelled) throw NleExportCancelledException()
-            val buffer = ByteBuffer.wrap(sample.data)
-            info.set(0, sample.data.size, sample.presentationTimeUs.coerceAtLeast(0L), sample.flags)
-            muxer.writeSampleData(muxerTrack, buffer, info)
+        RandomAccessFile(mixdown.sampleFilePath, "r").use { file ->
+            for (sample in mixdown.samples) {
+                if (token.cancelled) throw NleExportCancelledException()
+
+                if (sample.size <= 0) continue
+
+                val bytes = ByteArray(sample.size)
+                file.seek(sample.fileOffset)
+                file.readFully(bytes)
+
+                val buffer = ByteBuffer.wrap(bytes)
+                info.set(
+                    0,
+                    sample.size,
+                    sample.presentationTimeUs.coerceAtLeast(0L),
+                    sample.flags,
+                )
+                muxer.writeSampleData(muxerTrack, buffer, info)
+            }
         }
     }
 
