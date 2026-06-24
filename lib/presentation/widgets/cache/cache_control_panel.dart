@@ -250,7 +250,7 @@ class _CacheBar extends StatelessWidget {
           children: items
               .where((item) => item.fraction > 0)
               .map((item) => Expanded(
-                    flex: (item.fraction * 1000).round().clamp(1, 1000),
+                    flex: (item.fraction * 1000).round().clamp(1, 1000).toInt(),
                     child: Container(color: item.color),
                   ))
               .toList(),
