@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:flutter/services.dart';
+import 'package:nle_editor/domain/export/device_capability_profile.dart';
 import 'package:nle_editor/domain/rendering/render_graph_contract.dart';
 import 'package:nle_editor/domain/rendering/render_graph_dto.dart';
 import 'package:nle_editor/domain/rendering/render_graph_versioning.dart';
@@ -174,6 +175,38 @@ class NleTypedNativeBridge {
       },
       renderGraph: VersionedRenderGraphPayload.fromGraph(graph),
     ));
+  }
+
+  Future<NleNativeBridgeResponse<Map<String, Object?>>> cancelExportJob({
+    required String jobId,
+  }) {
+    return invoke(NleNativeBridgeCommand(
+      method: RenderGraphNativeMethods.cancelExportJob,
+      payload: {'jobId': jobId},
+    ));
+  }
+
+  Future<NleNativeBridgeResponse<DeviceCapabilityProfile>> probeDeviceCapabilities() async {
+    final response = await invoke(const NleNativeBridgeCommand(
+      method: RenderGraphNativeMethods.probeDeviceCapabilities,
+    ));
+    if (!response.success) {
+      return NleNativeBridgeResponse<DeviceCapabilityProfile>(
+        success: false,
+        method: response.method,
+        result: null,
+        error: response.error,
+        raw: response.raw,
+      );
+    }
+    final result = response.requireResult();
+    return NleNativeBridgeResponse<DeviceCapabilityProfile>(
+      success: true,
+      method: response.method,
+      result: DeviceCapabilityProfile.fromNativePayload(result),
+      error: null,
+      raw: response.raw,
+    );
   }
 
   Future<NleNativeBridgeResponse<Map<String, Object?>>> renderGpuPreviewFrame({
