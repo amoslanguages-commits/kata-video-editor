@@ -5,7 +5,6 @@ import 'package:nle_editor/data/mappers/render_graph_asset_mapper.dart';
 import 'package:nle_editor/data/repositories/film_look_repository.dart';
 import 'package:nle_editor/data/repositories/lut_repository.dart';
 import 'package:nle_editor/data/repositories/multitrack_timeline_repository.dart';
-import 'package:nle_editor/data/repositories/primary_grade_repository.dart';
 import 'package:nle_editor/domain/color/color_management_models.dart';
 import 'package:nle_editor/domain/color/project_color_settings.dart';
 import 'package:nle_editor/data/repositories/color_curve_repository.dart';
@@ -13,16 +12,14 @@ import 'package:nle_editor/data/repositories/secondary_grade_repository.dart';
 import 'package:nle_editor/domain/color_curves/color_curve_models.dart';
 import 'package:nle_editor/domain/color_grade/primary_grade_models.dart';
 import 'package:nle_editor/domain/color_lut/color_lut_models.dart';
-import 'package:nle_editor/domain/color_qualifier/hsl_qualifier_models.dart';
 import 'package:nle_editor/domain/film_look/film_look_models.dart';
+import 'package:nle_editor/domain/media/canonical_media_path.dart';
 import 'package:nle_editor/domain/rendering/multitrack_render_graph_mapper.dart';
 import 'package:nle_editor/domain/rendering/render_graph_dto.dart';
 import 'package:nle_editor/data/repositories/hdr_output_repository.dart';
 import 'package:nle_editor/domain/rendering/render_graph_hdr_output_dto.dart';
 import 'package:nle_editor/domain/color_output/hdr_output_models.dart';
-
 import 'package:nle_editor/domain/proxy/proxy_settings_models.dart';
-import 'package:nle_editor/domain/proxy/proxy_value_models.dart';
 import 'package:nle_editor/domain/proxy/proxy_resolution_service.dart';
 
 class MultitrackRenderGraphService {
@@ -68,7 +65,6 @@ class MultitrackRenderGraphService {
 
     final assetRows = await database.getMediaAssetsByIds(usedAssetIds);
 
-    // Resolve proxy settings
     NleProjectProxySettings proxySettings = const NleProjectProxySettings.defaults();
     final rawProxySettings = await database.getProjectProxySettingsJson(projectId);
     if (rawProxySettings != null && rawProxySettings.trim().isNotEmpty) {
@@ -83,16 +79,24 @@ class MultitrackRenderGraphService {
     final assets = assetRows.map((row) {
       final assetModel = assetMapper.fromDb(row);
       final mediaAsset = assetMapper.toMediaAsset(row);
-
       final resolved = isExport
           ? resolutionService.resolveForExport(asset: mediaAsset, settings: proxySettings)
           : resolutionService.resolveForPreview(asset: mediaAsset, settings: proxySettings);
+      final sourcePolicy = resolved.usingProxy
+          ? MediaSourcePolicy.proxy
+          : isExport
+              ? MediaSourcePolicy.original
+              : MediaSourcePolicy.automatic;
 
       return RenderGraphAssetDto(
         id: assetModel.id,
         type: assetModel.type,
-        originalPath: resolved.path ?? assetModel.originalPath,
-        proxyPath: assetModel.proxyPath,
+        originalPath: row.originalPath,
+        projectPath: row.projectPath,
+        proxyPath: row.proxyPath,
+        resolvedPath: resolved.path,
+        sourcePolicy: sourcePolicy.name,
+        usedProxy: resolved.usingProxy,
         thumbnailPath: assetModel.thumbnailPath,
         displayName: assetModel.displayName,
         durationMicros: assetModel.durationMicros,
@@ -115,19 +119,14 @@ class MultitrackRenderGraphService {
     for (final clip in timeline.clips) {
       final lutStack = await lutRepository.getClipLutStack(clipId: clip.id);
       clipLutStacks[clip.id] = lutStack;
-
       final primaryGrade = await primaryGradeRepository.getPrimaryGrade(clip.id);
       clipPrimaryGrades[clip.id] = primaryGrade;
-
       final colorCurves = await colorCurveRepository.getCurveStack(clip.id);
       clipColorCurves[clip.id] = colorCurves;
-
       final secondaryGrades = await secondaryGradeRepository.getStack(clip.id);
       clipSecondaryGrades[clip.id] = secondaryGrades;
-
       final filmLook = await filmLookRepository.getClipFilmLook(clip.id);
       clipFilmLooks[clip.id] = filmLook;
-
       final chainJson = await database.getClipEffectChainJson(clip.id);
       if (chainJson != null && chainJson.trim().isNotEmpty) {
         try {
@@ -166,7 +165,6 @@ class MultitrackRenderGraphService {
       trackEffectChains: trackEffectChains,
     );
 
-    // 30A-PRO: Color Management Pipeline
     final colorPipeline = await _buildColorPipeline(project, assetRows);
 
     return RenderGraphDto.create(
@@ -198,7 +196,8 @@ class MultitrackRenderGraphService {
       metadata: {
         'createdAt': DateTime.now().toUtc().toIso8601String(),
         'builder': 'MultitrackRenderGraphService',
-        'step': '30J-PRO',
+        'step': 'MegaBatchJ',
+        'assetPathContract': 'originalPath/projectPath/proxyPath/resolvedPath/sourcePolicy',
       },
     );
   }
@@ -207,7 +206,6 @@ class MultitrackRenderGraphService {
     db.Project project,
     List<db.MediaAsset> assetRows,
   ) async {
-    // Parse project color settings (falls back to Rec.709 SDR default).
     NleColorManagementPipeline pipeline;
     final jsonString = project.colorSettingsJson;
     if (jsonString != null && jsonString.trim().isNotEmpty) {
@@ -228,14 +226,12 @@ class MultitrackRenderGraphService {
       pipeline = const NleColorManagementPipeline.defaultRec709();
     }
 
-    // Build per-asset input transforms from the DB metadata columns.
     final assetInputTransforms = <String, Map<String, dynamic>>{};
     for (final asset in assetRows) {
       Map<String, dynamic> videoInfo = {};
       try {
         videoInfo = jsonDecode(asset.videoInfoJson) as Map<String, dynamic>;
       } catch (_) {}
-
       assetInputTransforms[asset.id] = {
         'colorSpace': videoInfo['colorSpace'] ?? 'auto',
         'transferCurve': 'auto',
@@ -284,23 +280,9 @@ class MultitrackRenderGraphService {
     )).toJsonString();
   }
 
-  int _projectWidth(db.Project project) {
-    return project.targetWidth;
-  }
-
-  int _projectHeight(db.Project project) {
-    return project.targetHeight;
-  }
-
-  double _projectFrameRate(db.Project project) {
-    return project.targetFrameRate.toDouble();
-  }
-
-  String _projectAspectRatio(db.Project project) {
-    return project.aspectRatio;
-  }
-
-  String _projectBackgroundColor(db.Project project) {
-    return '#000000';
-  }
+  int _projectWidth(db.Project project) => project.targetWidth;
+  int _projectHeight(db.Project project) => project.targetHeight;
+  double _projectFrameRate(db.Project project) => project.targetFrameRate.toDouble();
+  String _projectAspectRatio(db.Project project) => project.aspectRatio;
+  String _projectBackgroundColor(db.Project project) => '#000000';
 }
