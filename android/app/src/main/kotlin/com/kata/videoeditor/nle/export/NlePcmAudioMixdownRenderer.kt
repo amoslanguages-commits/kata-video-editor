@@ -88,9 +88,14 @@ internal class NlePcmAudioMixdownRenderer {
                 activeEncoder.start()
 
                 val info = MediaCodec.BufferInfo()
-                val frameChunk = 1024
                 val safeChannels = channels.coerceAtLeast(1)
+
+                // Window state tracking
                 var windowStartUs = 0L
+                var currentWindowMix: FloatArray? = null
+                var currentWindowStartUs = 0L
+                var currentWindowFrameCursor = 0
+                var currentWindowTotalFrames = 0
                 var inputDone = false
                 var outputDone = false
 
@@ -104,31 +109,52 @@ internal class NlePcmAudioMixdownRenderer {
                                 ?: throw IllegalStateException("AAC encoder input buffer was null.")
                             inputBuffer.clear()
 
-                            val windowEndUs = min(windowStartUs + MIX_WINDOW_US, durationUs)
-                            if (windowStartUs >= durationUs) {
-                                val ptsUs = (windowStartUs * sampleRate) / 1_000_000L
-                                activeEncoder.queueInputBuffer(inputIndex, 0, 0, ptsUs, MediaCodec.BUFFER_FLAG_END_OF_STREAM)
-                                inputDone = true
-                            } else {
-                                val windowMix = mixWindow(
-                                    plannedTracks = plannedTracks,
-                                    windowStartUs = windowStartUs,
-                                    windowEndUs = windowEndUs,
-                                    outputSampleRate = sampleRate,
-                                    outputChannels = safeChannels,
-                                    token = token,
-                                )
+                            // Mix a new window if needed
+                            if (currentWindowMix == null || currentWindowFrameCursor >= currentWindowTotalFrames) {
+                                if (windowStartUs >= durationUs) {
+                                    val ptsUs = (windowStartUs * sampleRate) / 1_000_000L
+                                    activeEncoder.queueInputBuffer(inputIndex, 0, 0, ptsUs, MediaCodec.BUFFER_FLAG_END_OF_STREAM)
+                                    inputDone = true
+                                    continue
+                                } else {
+                                    val windowEndUs = min(windowStartUs + MIX_WINDOW_US, durationUs)
+                                    currentWindowMix = mixWindow(
+                                        plannedTracks = plannedTracks,
+                                        windowStartUs = windowStartUs,
+                                        windowEndUs = windowEndUs,
+                                        outputSampleRate = sampleRate,
+                                        outputChannels = safeChannels,
+                                        token = token,
+                                    )
+                                    currentWindowStartUs = windowStartUs
+                                    currentWindowFrameCursor = 0
+                                    currentWindowTotalFrames = currentWindowMix.size / safeChannels
+                                    windowStartUs = windowEndUs
+                                }
+                            }
+
+                            if (!inputDone) {
+                                val mix = currentWindowMix ?: continue
+                                val maxFramesForBuffer = (inputBuffer.remaining() / (safeChannels * 2)).coerceAtLeast(0)
+                                val remainingFrames = currentWindowTotalFrames - currentWindowFrameCursor
+                                val framesToWrite = min(remainingFrames, maxFramesForBuffer)
+
+                                if (framesToWrite <= 0) {
+                                    // No space; retry on next buffer dequeue
+                                    continue
+                                }
 
                                 val bytesWritten = writePcm16ToBuffer(
-                                    mix = windowMix,
-                                    offsetFrame = 0,
-                                    frameCount = windowMix.size / safeChannels,
+                                    mix = mix,
+                                    offsetFrame = currentWindowFrameCursor,
+                                    frameCount = framesToWrite,
                                     channels = safeChannels,
                                     buffer = inputBuffer,
                                 )
-                                val ptsUs = (windowStartUs * sampleRate) / 1_000_000L
+                                val ptsUs = currentWindowStartUs +
+                                    (currentWindowFrameCursor * 1_000_000L / sampleRate.coerceAtLeast(1))
                                 activeEncoder.queueInputBuffer(inputIndex, 0, bytesWritten, ptsUs, 0)
-                                windowStartUs = windowEndUs
+                                currentWindowFrameCursor += framesToWrite
                             }
                         }
                     }
