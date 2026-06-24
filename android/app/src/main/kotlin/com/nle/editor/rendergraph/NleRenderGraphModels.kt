@@ -42,11 +42,7 @@ data class NleRenderAsset(
     val id: String,
     val type: String,
     val originalPath: String?,
-    val projectPath: String?,
     val proxyPath: String?,
-    val resolvedPath: String?,
-    val sourcePolicy: String,
-    val usedProxy: Boolean,
     val thumbnailPath: String?,
     val displayName: String?,
     val durationUs: Long,
@@ -57,6 +53,10 @@ data class NleRenderAsset(
     val codec: String?,
     val frameRate: Double?,
     val rotationDegrees: Int,
+    val projectPath: String? = null,
+    val resolvedPath: String? = null,
+    val sourcePolicy: String = "automatic",
+    val usedProxy: Boolean = false,
 )
 
 data class NleRenderTrack(
