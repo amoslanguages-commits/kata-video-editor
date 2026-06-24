@@ -8,6 +8,38 @@ import 'package:nle_editor/domain/media_library/media_asset_models.dart';
 import 'package:nle_editor/domain/media_library/media_asset_value_models.dart';
 import 'package:nle_editor/domain/media_library/media_bin_models.dart';
 
+class NleResolvedMediaAsset {
+  final NleMediaAsset asset;
+  final String selectedMediaPath;
+  final String? resolvedPath;
+  final bool usingProxy;
+
+  const NleResolvedMediaAsset({
+    required this.asset,
+    required this.selectedMediaPath,
+    required this.resolvedPath,
+    required this.usingProxy,
+  });
+
+  Map<String, dynamic> toRenderJson() {
+    return {
+      'id': asset.id,
+      'type': asset.type.name,
+      'originalPath': asset.originalPath,
+      'projectPath': asset.projectPath,
+      'proxyPath': asset.proxyPath,
+      'resolvedPath': resolvedPath,
+      'selectedMediaPath': selectedMediaPath,
+      'usingProxy': usingProxy,
+      'width': asset.videoInfo.width,
+      'height': asset.videoInfo.height,
+      'durationMicros': asset.timecodeInfo.durationMicros,
+      'hasVideo': asset.isVideo || asset.videoInfo.hasResolution,
+      'hasAudio': asset.isAudio || asset.audioInfo.channelCount > 0,
+    };
+  }
+}
+
 /// Repository for the canonical project media model.
 ///
 /// All production import, proxy, cache, render, and export code should read and
@@ -34,6 +66,14 @@ class MediaAssetRepository {
     return _assetFromRow(row);
   }
 
+  Future<NleMediaAsset> requireAsset(String assetId) async {
+    final asset = await getAsset(assetId);
+    if (asset == null) {
+      throw StateError('Media asset not found: $assetId');
+    }
+    return asset;
+  }
+
   Future<void> saveAsset(NleMediaAsset asset) async {
     await database.upsertMediaAsset(
       db.MediaAssetsCompanion(
@@ -45,7 +85,7 @@ class MediaAssetRepository {
         storageMode: Value(asset.storageMode.name),
         availability: Value(asset.availability.name),
         originalPath: Value(asset.originalPath),
-        projectPath: Value(asset.projectPath),
+        projectPath: Value(asset.projectPath ?? asset.resolvedPath),
         thumbnailPath: Value(asset.thumbnailPath),
         waveformCacheId: Value(asset.waveformCacheId),
         proxyPath: Value(asset.proxyPath),
@@ -125,6 +165,13 @@ class MediaAssetRepository {
     }
   }
 
+  Future<int> migrateLegacyAssetsForProject(String projectId) async {
+    final before = await database.getMediaAssetsForProject(projectId);
+    await importExistingProjectAssetRecords(projectId);
+    final after = await database.getMediaAssetsForProject(projectId);
+    return after.length - before.length;
+  }
+
   Future<void> markAnalyzed({
     required String assetId,
     required NleMediaFileInfo fileInfo,
@@ -191,10 +238,14 @@ class MediaAssetRepository {
     required String assetId,
     required String originalPath,
   }) async {
-    await database.updateMediaAssetPath(
-      assetId: assetId,
-      originalPath: originalPath,
-      availability: NleMediaAvailability.available.name,
+    final asset = await requireAsset(assetId);
+    await saveAsset(
+      asset.copyWith(
+        availability: NleMediaAvailability.available,
+        projectPath: originalPath,
+        resolvedPath: originalPath,
+        selectedMediaPath: originalPath,
+      ),
     );
   }
 
@@ -241,6 +292,44 @@ class MediaAssetRepository {
     );
   }
 
+  String? resolvePath(NleMediaAsset asset) {
+    if (asset.availability != NleMediaAvailability.available) return null;
+    return _firstNonBlank(asset.resolvedPath, asset.projectPath, asset.originalPath);
+  }
+
+  String? selectMediaPath(NleMediaAsset asset, {bool preferProxy = true}) {
+    if (asset.availability != NleMediaAvailability.available) return null;
+    final proxy = _cleanPath(asset.proxyPath);
+    if (preferProxy && asset.proxyStatus == NleProxyStatus.ready && proxy != null) {
+      return proxy;
+    }
+    return resolvePath(asset);
+  }
+
+  Future<NleResolvedMediaAsset?> resolveAssetForRender({
+    required String assetId,
+    bool preferProxy = true,
+  }) async {
+    final asset = await getAsset(assetId);
+    if (asset == null) return null;
+    return _resolveForRender(asset, preferProxy: preferProxy);
+  }
+
+  Future<Map<String, NleResolvedMediaAsset>> resolveAssetsForRender({
+    required Iterable<String> assetIds,
+    bool preferProxy = true,
+  }) async {
+    final ids = assetIds.where((id) => id.trim().isNotEmpty).toSet().toList();
+    if (ids.isEmpty) return const <String, NleResolvedMediaAsset>{};
+    final assets = await getAssetsByIds(ids);
+    final resolved = <String, NleResolvedMediaAsset>{};
+    for (final asset in assets) {
+      final item = _resolveForRender(asset, preferProxy: preferProxy);
+      if (item != null) resolved[asset.id] = item;
+    }
+    return resolved;
+  }
+
   Future<List<Map<String, dynamic>>> getLifecycleReport(String projectId) async {
     final assets = await getAssets(projectId);
     return assets.map((asset) => asset.lifecycleJson()).toList();
@@ -268,11 +357,23 @@ class MediaAssetRepository {
     );
   }
 
-  Future<void> linkAssetToBin({
-    required String assetId,
-    required String binId,
-  }) {
+  Future<void> linkAssetToBin({required String assetId, required String binId}) {
     return database.linkAssetToBin(assetId: assetId, binId: binId);
+  }
+
+  NleResolvedMediaAsset? _resolveForRender(
+    NleMediaAsset asset, {
+    required bool preferProxy,
+  }) {
+    final resolvedPath = resolvePath(asset);
+    final selectedPath = selectMediaPath(asset, preferProxy: preferProxy);
+    if (selectedPath == null) return null;
+    return NleResolvedMediaAsset(
+      asset: asset.copyWith(resolvedPath: resolvedPath, selectedMediaPath: selectedPath),
+      selectedMediaPath: selectedPath,
+      resolvedPath: resolvedPath,
+      usingProxy: _cleanPath(asset.proxyPath) == selectedPath && asset.proxyStatus == NleProxyStatus.ready,
+    );
   }
 
   NleMediaAsset _assetFromRow(db.MediaAsset row) {
@@ -281,6 +382,17 @@ class MediaAssetRepository {
     final audioInfo = _decodeMap(row.audioInfoJson);
     final timecodeInfo = _decodeMap(row.timecodeInfoJson);
     final tags = _decodeStringList(row.tagsJson);
+    final availability = _enumByName(NleMediaAvailability.values, row.availability, NleMediaAvailability.available);
+    final proxyStatus = _enumByName(NleProxyStatus.values, row.proxyStatus, NleProxyStatus.none);
+    final resolvedPath = availability == NleMediaAvailability.available
+        ? _firstNonBlank(row.projectPath, row.originalPath)
+        : null;
+    final selectedPath = _selectPathFromParts(
+      availability: availability,
+      proxyStatus: proxyStatus,
+      proxyPath: row.proxyPath,
+      resolvedPath: resolvedPath,
+    );
 
     return NleMediaAsset(
       id: row.id,
@@ -289,13 +401,15 @@ class MediaAssetRepository {
       type: _enumByName(NleMediaAssetType.values, row.type, NleMediaAssetType.unknown),
       importSource: _enumByName(NleMediaImportSource.values, row.importSource, NleMediaImportSource.filePicker),
       storageMode: _enumByName(NleMediaStorageMode.values, row.storageMode, NleMediaStorageMode.copiedIntoProject),
-      availability: _enumByName(NleMediaAvailability.values, row.availability, NleMediaAvailability.available),
+      availability: availability,
       originalPath: row.originalPath,
       projectPath: row.projectPath,
+      resolvedPath: resolvedPath,
+      selectedMediaPath: selectedPath,
       thumbnailPath: row.thumbnailPath,
       waveformCacheId: row.waveformCacheId,
       proxyPath: row.proxyPath,
-      proxyStatus: _enumByName(NleProxyStatus.values, row.proxyStatus, NleProxyStatus.none),
+      proxyStatus: proxyStatus,
       usageState: _enumByName(NleMediaUsageState.values, row.usageState, NleMediaUsageState.unused),
       fileInfo: NleMediaFileInfo.fromJson(fileInfo),
       videoInfo: NleMediaVideoInfo.fromJson(videoInfo),
@@ -352,6 +466,32 @@ class MediaAssetRepository {
     final index = fileName.lastIndexOf('.');
     if (index < 0 || index == fileName.length - 1) return '';
     return fileName.substring(index + 1).toLowerCase();
+  }
+
+  String? _selectPathFromParts({
+    required NleMediaAvailability availability,
+    required NleProxyStatus proxyStatus,
+    required String? proxyPath,
+    required String? resolvedPath,
+  }) {
+    if (availability != NleMediaAvailability.available) return null;
+    final proxy = _cleanPath(proxyPath);
+    if (proxyStatus == NleProxyStatus.ready && proxy != null) return proxy;
+    return _cleanPath(resolvedPath);
+  }
+
+  String? _firstNonBlank(String? first, [String? second, String? third]) {
+    for (final value in [first, second, third]) {
+      final clean = _cleanPath(value);
+      if (clean != null) return clean;
+    }
+    return null;
+  }
+
+  String? _cleanPath(String? value) {
+    final trimmed = value?.trim();
+    if (trimmed == null || trimmed.isEmpty) return null;
+    return trimmed;
   }
 
   Map<String, dynamic> _decodeMap(String raw) {
