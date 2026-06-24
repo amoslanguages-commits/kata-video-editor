@@ -29,12 +29,12 @@ internal class NleCompositedAudioTrackPlanner {
                 val assetId = clip.assetId ?: continue
                 val asset = assetsById[assetId] ?: continue
                 if (!asset.hasAudio) continue
-                val sourcePath = resolveAssetPath(asset, preferProxy) ?: continue
-                val audioTrack = firstAudioTrack(sourcePath) ?: continue
+                val chosenPath = resolveAssetPath(asset, preferProxy) ?: continue
+                val audioTrack = firstAudioTrack(chosenPath) ?: continue
                 planned.add(
                     NlePlannedAudioTrack(
                         clip = clip,
-                        sourcePath = sourcePath,
+                        sourcePath = chosenPath,
                         sourceTrackIndex = audioTrack.first,
                         format = audioTrack.second,
                     )
@@ -45,10 +45,11 @@ internal class NleCompositedAudioTrackPlanner {
     }
 
     private fun resolveAssetPath(asset: NleRenderAsset, preferProxy: Boolean): String? {
+        asset.resolvedPath?.takeIf { it.isNotBlank() }?.let { return it }
         return if (preferProxy) {
-            asset.proxyPath?.takeIf { it.isNotBlank() } ?: asset.originalPath?.takeIf { it.isNotBlank() }
+            asset.proxyPath?.takeIf { it.isNotBlank() } ?: asset.projectPath?.takeIf { it.isNotBlank() } ?: asset.originalPath?.takeIf { it.isNotBlank() }
         } else {
-            asset.originalPath?.takeIf { it.isNotBlank() } ?: asset.proxyPath?.takeIf { it.isNotBlank() }
+            asset.projectPath?.takeIf { it.isNotBlank() } ?: asset.originalPath?.takeIf { it.isNotBlank() } ?: asset.proxyPath?.takeIf { it.isNotBlank() }
         }
     }
 
