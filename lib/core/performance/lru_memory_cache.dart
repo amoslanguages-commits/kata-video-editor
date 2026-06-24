@@ -1,5 +1,3 @@
-import 'dart:collection';
-
 class LruCacheEntry<T> {
   final String key;
   final T value;
