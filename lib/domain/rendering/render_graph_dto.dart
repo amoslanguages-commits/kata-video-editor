@@ -8,7 +8,6 @@ import 'package:nle_editor/domain/rendering/render_graph_color_curves_dto.dart';
 import 'package:nle_editor/domain/rendering/render_graph_secondary_grade_dto.dart';
 import 'package:nle_editor/domain/rendering/render_graph_hdr_output_dto.dart';
 
-
 class RenderGraphDto {
   final String schema;
   final int version;
@@ -126,7 +125,11 @@ class RenderGraphAssetDto {
   final String id;
   final String type;
   final String? originalPath;
+  final String? projectPath;
   final String? proxyPath;
+  final String? resolvedPath;
+  final String sourcePolicy;
+  final bool usedProxy;
   final String? thumbnailPath;
   final String? displayName;
   final int durationMicros;
@@ -147,7 +150,11 @@ class RenderGraphAssetDto {
     required this.hasVideo,
     required this.hasAudio,
     this.originalPath,
+    this.projectPath,
     this.proxyPath,
+    this.resolvedPath,
+    this.sourcePolicy = 'automatic',
+    this.usedProxy = false,
     this.thumbnailPath,
     this.displayName,
     this.codec,
@@ -160,7 +167,12 @@ class RenderGraphAssetDto {
       'id': id,
       'type': type,
       'originalPath': originalPath,
+      'projectPath': projectPath,
       'proxyPath': proxyPath,
+      'resolvedPath': resolvedPath,
+      'selectedMediaPath': resolvedPath,
+      'sourcePolicy': sourcePolicy,
+      'usedProxy': usedProxy,
       'thumbnailPath': thumbnailPath,
       'displayName': displayName,
       'durationMicros': durationMicros,
@@ -248,29 +260,24 @@ class RenderGraphClipDto {
   final String type;
   final String clipType;
   final String name;
-
   final int timelineStartMicros;
   final int timelineEndMicros;
   final int sourceStartMicros;
   final int sourceEndMicros;
-  final int durationMicros;
-
   final double speed;
-
   final RenderGraphTransformDto transform;
   final RenderGraphCropDto crop;
   final RenderGraphColorDto color;
   final RenderGraphAudioDto audio;
   final RenderGraphTextDto? text;
+  final bool isDisabled;
+  final int zIndex;
   final RenderGraphLutStackDto? lutStack;
   final RenderGraphPrimaryGradeDto? primaryGrade;
-  final RenderGraphColorCurveStackDto? colorCurves;
+  final RenderGraphColorCurveStackDto? colorCurveStack;
   final RenderGraphSecondaryGradeStackDto? secondaryGrades;
   final RenderGraphFilmLookDto? filmLook;
   final Map<String, dynamic>? effectChain;
-
-  final bool isDisabled;
-  final int zIndex;
 
   const RenderGraphClipDto({
     required this.id,
@@ -284,22 +291,23 @@ class RenderGraphClipDto {
     required this.timelineEndMicros,
     required this.sourceStartMicros,
     required this.sourceEndMicros,
-    required this.durationMicros,
     required this.speed,
     required this.transform,
     required this.crop,
     required this.color,
     required this.audio,
-    required this.text,
+    this.text,
+    required this.isDisabled,
+    required this.zIndex,
     this.lutStack,
     this.primaryGrade,
-    this.colorCurves,
+    this.colorCurveStack,
     this.secondaryGrades,
     this.filmLook,
     this.effectChain,
-    required this.isDisabled,
-    required this.zIndex,
   });
+
+  int get durationMicros => timelineEndMicros - timelineStartMicros;
 
   Map<String, dynamic> toJson() {
     return {
@@ -316,42 +324,19 @@ class RenderGraphClipDto {
       'sourceEndMicros': sourceEndMicros,
       'durationMicros': durationMicros,
       'speed': speed,
-
-      // Flattened fields for native compatibility:
-      'opacity': transform.opacity,
-      'positionX': transform.positionX,
-      'positionY': transform.positionY,
-      'scale': transform.scale,
-      'rotation': transform.rotation,
-      'fitMode': crop.fitMode,
-      'cropLeft': crop.left,
-      'cropTop': crop.top,
-      'cropRight': crop.right,
-      'cropBottom': crop.bottom,
-      'brightness': color.brightness,
-      'contrast': color.contrast,
-      'saturation': color.saturation,
-      'volume': audio.volume,
-      'fadeInMicros': audio.fadeInMicros,
-      'fadeOutMicros': audio.fadeOutMicros,
-      'textContent': text?.content,
-      'textStyleJson': text?.styleJson,
-      'colorHex': text?.colorHex,
-
-      // Structured fields for future native parser:
       'transform': transform.toJson(),
       'crop': crop.toJson(),
       'color': color.toJson(),
       'audio': audio.toJson(),
-      'text': text?.toJson(),
+      if (text != null) 'text': text!.toJson(),
+      'isDisabled': isDisabled,
+      'zIndex': zIndex,
       if (lutStack != null) 'lutStack': lutStack!.toJson(),
       if (primaryGrade != null) 'primaryGrade': primaryGrade!.toJson(),
-      if (colorCurves != null) 'colorCurves': colorCurves!.toJson(),
+      if (colorCurveStack != null) 'colorCurveStack': colorCurveStack!.toJson(),
       if (secondaryGrades != null) 'secondaryGrades': secondaryGrades!.toJson(),
       if (filmLook != null) 'filmLook': filmLook!.toJson(),
       if (effectChain != null) 'effectChain': effectChain,
-      'isDisabled': isDisabled,
-      'zIndex': zIndex,
     };
   }
 }
@@ -371,15 +356,13 @@ class RenderGraphTransformDto {
     required this.opacity,
   });
 
-  Map<String, dynamic> toJson() {
-    return {
-      'positionX': positionX,
-      'positionY': positionY,
-      'scale': scale,
-      'rotation': rotation,
-      'opacity': opacity,
-    };
-  }
+  Map<String, dynamic> toJson() => {
+        'positionX': positionX,
+        'positionY': positionY,
+        'scale': scale,
+        'rotation': rotation,
+        'opacity': opacity,
+      };
 }
 
 class RenderGraphCropDto {
@@ -397,15 +380,13 @@ class RenderGraphCropDto {
     required this.bottom,
   });
 
-  Map<String, dynamic> toJson() {
-    return {
-      'fitMode': fitMode,
-      'left': left,
-      'top': top,
-      'right': right,
-      'bottom': bottom,
-    };
-  }
+  Map<String, dynamic> toJson() => {
+        'fitMode': fitMode,
+        'left': left,
+        'top': top,
+        'right': right,
+        'bottom': bottom,
+      };
 }
 
 class RenderGraphColorDto {
@@ -419,13 +400,11 @@ class RenderGraphColorDto {
     required this.saturation,
   });
 
-  Map<String, dynamic> toJson() {
-    return {
-      'brightness': brightness,
-      'contrast': contrast,
-      'saturation': saturation,
-    };
-  }
+  Map<String, dynamic> toJson() => {
+        'brightness': brightness,
+        'contrast': contrast,
+        'saturation': saturation,
+      };
 }
 
 class RenderGraphAudioDto {
@@ -439,13 +418,11 @@ class RenderGraphAudioDto {
     required this.fadeOutMicros,
   });
 
-  Map<String, dynamic> toJson() {
-    return {
-      'volume': volume,
-      'fadeInMicros': fadeInMicros,
-      'fadeOutMicros': fadeOutMicros,
-    };
-  }
+  Map<String, dynamic> toJson() => {
+        'volume': volume,
+        'fadeInUs': fadeInMicros,
+        'fadeOutUs': fadeOutMicros,
+      };
 }
 
 class RenderGraphTextDto {
@@ -455,52 +432,45 @@ class RenderGraphTextDto {
 
   const RenderGraphTextDto({
     required this.content,
-    required this.styleJson,
-    required this.colorHex,
+    this.styleJson,
+    this.colorHex,
   });
 
-  Map<String, dynamic> toJson() {
-    return {
-      'content': content,
-      'styleJson': styleJson,
-      'colorHex': colorHex,
-    };
-  }
+  Map<String, dynamic> toJson() => {
+        'content': content,
+        'styleJson': styleJson,
+        'colorHex': colorHex,
+      };
 }
 
 class RenderGraphCompositionDto {
-  final List<String> visualTrackIdsBottomToTop;
-  final List<String> enabledVisualTrackIdsBottomToTop;
-  final List<String> audioTrackIds;
-  final List<String> enabledAudioTrackIds;
-  final bool hasSoloAudio;
-  final bool hasHiddenTracks;
-  final int visualLayerCount;
-  final int audioLayerCount;
+  final int durationMicros;
+  final int videoTrackCount;
+  final int audioTrackCount;
+  final int clipCount;
+  final bool hasOverlays;
+  final bool hasText;
+  final bool hasAudio;
 
   const RenderGraphCompositionDto({
-    required this.visualTrackIdsBottomToTop,
-    required this.enabledVisualTrackIdsBottomToTop,
-    required this.audioTrackIds,
-    required this.enabledAudioTrackIds,
-    required this.hasSoloAudio,
-    required this.hasHiddenTracks,
-    required this.visualLayerCount,
-    required this.audioLayerCount,
+    required this.durationMicros,
+    required this.videoTrackCount,
+    required this.audioTrackCount,
+    required this.clipCount,
+    required this.hasOverlays,
+    required this.hasText,
+    required this.hasAudio,
   });
 
-  Map<String, dynamic> toJson() {
-    return {
-      'visualTrackIdsBottomToTop': visualTrackIdsBottomToTop,
-      'enabledVisualTrackIdsBottomToTop': enabledVisualTrackIdsBottomToTop,
-      'audioTrackIds': audioTrackIds,
-      'enabledAudioTrackIds': enabledAudioTrackIds,
-      'hasSoloAudio': hasSoloAudio,
-      'hasHiddenTracks': hasHiddenTracks,
-      'visualLayerCount': visualLayerCount,
-      'audioLayerCount': audioLayerCount,
-    };
-  }
+  Map<String, dynamic> toJson() => {
+        'durationMicros': durationMicros,
+        'videoTrackCount': videoTrackCount,
+        'audioTrackCount': audioTrackCount,
+        'clipCount': clipCount,
+        'hasOverlays': hasOverlays,
+        'hasText': hasText,
+        'hasAudio': hasAudio,
+      };
 }
 
 class RenderGraphAudioMixDto {
@@ -519,105 +489,47 @@ class RenderGraphAudioMixDto {
     required this.soloAudioTrackIds,
     required this.mutedAudioTrackIds,
     required this.activeAudioTrackIds,
-    this.sampleRate = 48000,
-    this.channels = 2,
+    required this.sampleRate,
+    required this.channels,
     this.masterEffectChain,
   });
 
-  Map<String, dynamic> toJson() {
-    return {
-      'enabled': enabled,
-      'hasSoloAudio': hasSoloAudio,
-      'soloAudioTrackIds': soloAudioTrackIds,
-      'mutedAudioTrackIds': mutedAudioTrackIds,
-      'activeAudioTrackIds': activeAudioTrackIds,
-      'sampleRate': sampleRate,
-      'channels': channels,
-      if (masterEffectChain != null) 'masterEffectChain': masterEffectChain,
-    };
-  }
+  Map<String, dynamic> toJson() => {
+        'enabled': enabled,
+        'hasSoloAudio': hasSoloAudio,
+        'soloAudioTrackIds': soloAudioTrackIds,
+        'mutedAudioTrackIds': mutedAudioTrackIds,
+        'activeAudioTrackIds': activeAudioTrackIds,
+        'sampleRate': sampleRate,
+        'channels': channels,
+        if (masterEffectChain != null) 'masterEffectChain': masterEffectChain,
+      };
 }
 
 class RenderGraphExportHintsDto {
-  final bool useProxyForPreview;
+  final bool requiresCompositing;
+  final bool requiresAudioMixdown;
+  final bool requiresColorPipeline;
+  final bool requiresTextLayout;
   final bool useOriginalForExport;
-  final bool requiresGpuCompositor;
-  final bool containsText;
-  final bool containsImage;
-  final bool containsVideo;
-  final bool containsAudio;
-  final bool containsAdjustment;
-  final bool containsColorAdjustments;
-  final bool containsCrop;
-  final bool containsSpeedChanges;
-  final bool containsFades;
-  final bool containsLut;
-  final bool containsPrimaryGrades;
-  final bool containsColorCurves;
-  final bool containsSecondaryGrades;
-  final bool containsFilmLooks;
-  final String outputMode;
-  final bool isHdrOutput;
-  final bool isWideColorOutput;
-  final bool requiresTenBit;
 
   const RenderGraphExportHintsDto({
-    required this.useProxyForPreview,
+    required this.requiresCompositing,
+    required this.requiresAudioMixdown,
+    required this.requiresColorPipeline,
+    required this.requiresTextLayout,
     required this.useOriginalForExport,
-    required this.requiresGpuCompositor,
-    required this.containsText,
-    required this.containsImage,
-    required this.containsVideo,
-    required this.containsAudio,
-    required this.containsAdjustment,
-    required this.containsColorAdjustments,
-    required this.containsCrop,
-    required this.containsSpeedChanges,
-    required this.containsFades,
-    required this.containsLut,
-    required this.containsPrimaryGrades,
-    required this.containsColorCurves,
-    required this.containsSecondaryGrades,
-    required this.containsFilmLooks,
-    required this.outputMode,
-    required this.isHdrOutput,
-    required this.isWideColorOutput,
-    required this.requiresTenBit,
   });
 
-  Map<String, dynamic> toJson() {
-    return {
-      'useProxyForPreview': useProxyForPreview,
-      'useOriginalForExport': useOriginalForExport,
-      'requiresGpuCompositor': requiresGpuCompositor,
-      'containsText': containsText,
-      'containsImage': containsImage,
-      'containsVideo': containsVideo,
-      'containsAudio': containsAudio,
-      'containsAdjustment': containsAdjustment,
-      'containsColorAdjustments': containsColorAdjustments,
-      'containsCrop': containsCrop,
-      'containsSpeedChanges': containsSpeedChanges,
-      'containsFades': containsFades,
-      'containsLut': containsLut,
-      'containsPrimaryGrades': containsPrimaryGrades,
-      'containsColorCurves': containsColorCurves,
-      'containsSecondaryGrades': containsSecondaryGrades,
-      'containsFilmLooks': containsFilmLooks,
-      'outputMode': outputMode,
-      'isHdrOutput': isHdrOutput,
-      'isWideColorOutput': isWideColorOutput,
-      'requiresTenBit': requiresTenBit,
-    };
-  }
+  Map<String, dynamic> toJson() => {
+        'requiresCompositing': requiresCompositing,
+        'requiresAudioMixdown': requiresAudioMixdown,
+        'requiresColorPipeline': requiresColorPipeline,
+        'requiresTextLayout': requiresTextLayout,
+        'useOriginalForExport': useOriginalForExport,
+      };
 }
 
-// ============================================================
-// 30A-PRO: COLOR PIPELINE DTO
-// ============================================================
-
-/// Carries the full NleColorManagementPipeline into the RenderGraph JSON
-/// so the Android/iOS native compositor can apply correct color transforms.
 class RenderGraphColorPipelineDto {
   final bool enabled;
   final String quality;
@@ -627,9 +539,7 @@ class RenderGraphColorPipelineDto {
   final Map<String, dynamic> exportOutput;
   final bool forceCompatibilityMode;
   final bool previewMatchesExport;
-
-  /// Per-asset input transforms keyed by assetId.
-  final Map<String, Map<String, dynamic>> assetInputTransforms;
+  final Map<String, dynamic> assetInputTransforms;
 
   const RenderGraphColorPipelineDto({
     required this.enabled,
@@ -638,22 +548,20 @@ class RenderGraphColorPipelineDto {
     required this.working,
     required this.previewOutput,
     required this.exportOutput,
+    required this.forceCompatibilityMode,
+    required this.previewMatchesExport,
     required this.assetInputTransforms,
-    this.forceCompatibilityMode = false,
-    this.previewMatchesExport = true,
   });
 
-  Map<String, dynamic> toJson() {
-    return {
-      'enabled': enabled,
-      'quality': quality,
-      'defaultInput': defaultInput,
-      'working': working,
-      'previewOutput': previewOutput,
-      'exportOutput': exportOutput,
-      'forceCompatibilityMode': forceCompatibilityMode,
-      'previewMatchesExport': previewMatchesExport,
-      'assetInputTransforms': assetInputTransforms,
-    };
-  }
+  Map<String, dynamic> toJson() => {
+        'enabled': enabled,
+        'quality': quality,
+        'defaultInput': defaultInput,
+        'working': working,
+        'previewOutput': previewOutput,
+        'exportOutput': exportOutput,
+        'forceCompatibilityMode': forceCompatibilityMode,
+        'previewMatchesExport': previewMatchesExport,
+        'assetInputTransforms': assetInputTransforms,
+      };
 }
