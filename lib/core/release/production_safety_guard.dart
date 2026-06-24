@@ -1,5 +1,3 @@
-import 'package:flutter/foundation.dart';
-
 import 'package:nle_editor/core/config/app_config.dart';
 
 class ProductionSafetyGuard {
@@ -29,10 +27,6 @@ class ProductionSafetyGuard {
     if (config.allowInternalDiagnosticsExport) {
       problems.add('allowInternalDiagnosticsExport must be false in production.');
     }
-
-    // if (kDebugMode) {
-    //   problems.add('Production flavor is running in debug mode.');
-    // }
 
     if (config.packageName.endsWith('.dev') ||
         config.packageName.endsWith('.staging')) {
