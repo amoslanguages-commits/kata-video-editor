@@ -57,14 +57,26 @@ class NleMediaAsset {
     required this.version,
   });
 
+  String? get originalMediaPath => _clean(originalPath);
+  String? get projectMediaPath => _clean(projectPath);
+  String? get proxyMediaPath => _clean(proxyPath);
+
+  /// Highest-quality editable path controlled by the app when available.
+  String? get originalQualityPath => projectMediaPath ?? originalMediaPath;
+
+  /// Path used for edit/preview when no proxy policy overrides it.
   String? get resolvedEditPath {
     if (availability != NleMediaAvailability.available) return null;
-    return projectPath ?? originalPath;
+    return originalQualityPath;
   }
 
+  /// Path used for original-quality export.
   String? get resolvedOriginalPath {
-    return projectPath ?? originalPath;
+    if (availability != NleMediaAvailability.available) return null;
+    return originalQualityPath;
   }
+
+  bool get hasProxyFile => proxyMediaPath != null && proxyStatus == NleProxyStatus.ready;
 
   bool get isVideo => type == NleMediaAssetType.video;
   bool get isAudio => type == NleMediaAssetType.audio;
@@ -73,6 +85,45 @@ class NleMediaAsset {
   bool get isUsed => usageState != NleMediaUsageState.unused;
 
   int get durationMicros => timecodeInfo.durationMicros;
+
+  bool get hasAnalysisData {
+    return fileInfo.hasFileIdentity ||
+        videoInfo.hasResolution ||
+        videoInfo.hasCodec ||
+        audioInfo.hasFormat ||
+        timecodeInfo.hasDuration;
+  }
+
+  NleMediaLifecycleStage get lifecycleStage {
+    switch (availability) {
+      case NleMediaAvailability.missing:
+        return NleMediaLifecycleStage.missing;
+      case NleMediaAvailability.offline:
+        return NleMediaLifecycleStage.offline;
+      case NleMediaAvailability.corrupted:
+        return NleMediaLifecycleStage.corrupted;
+      case NleMediaAvailability.available:
+        break;
+    }
+
+    switch (proxyStatus) {
+      case NleProxyStatus.ready:
+        return NleMediaLifecycleStage.proxyReady;
+      case NleProxyStatus.generating:
+        return NleMediaLifecycleStage.proxyGenerating;
+      case NleProxyStatus.queued:
+        return NleMediaLifecycleStage.proxyQueued;
+      case NleProxyStatus.failed:
+      case NleProxyStatus.none:
+        if (isVideo && hasAnalysisData && proxyMediaPath == null) {
+          return NleMediaLifecycleStage.proxyNeeded;
+        }
+    }
+
+    return hasAnalysisData
+        ? NleMediaLifecycleStage.analyzed
+        : NleMediaLifecycleStage.imported;
+  }
 
   Map<String, dynamic> toJson() {
     return {
@@ -90,6 +141,7 @@ class NleMediaAsset {
       'proxyPath': proxyPath,
       'proxyStatus': proxyStatus.name,
       'usageState': usageState.name,
+      'lifecycleStage': lifecycleStage.name,
       'fileInfo': fileInfo.toJson(),
       'videoInfo': videoInfo.toJson(),
       'audioInfo': audioInfo.toJson(),
@@ -211,6 +263,12 @@ class NleMediaAsset {
       updatedAt: updatedAt ?? DateTime.now(),
       version: version ?? this.version,
     );
+  }
+
+  static String? _clean(String? value) {
+    final trimmed = value?.trim();
+    if (trimmed == null || trimmed.isEmpty) return null;
+    return trimmed;
   }
 }
 
