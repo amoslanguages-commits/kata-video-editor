@@ -5,6 +5,7 @@ import android.media.MediaFormat
 import android.media.MediaMuxer
 import com.kata.videoeditor.nle.NleNativeEvent
 import com.kata.videoeditor.nle.NleNativeEventEmitter
+import org.json.JSONObject
 import java.io.File
 import java.nio.ByteBuffer
 import java.util.concurrent.ConcurrentHashMap
@@ -53,6 +54,7 @@ class NleNativeExportRenderer(
             preferProxy = preferProxyForExport,
         )
 
+        val needsAudioMixdown = requiresAudioMixdown(renderGraphJson)
         val token = NleExportCancellationToken()
         runningJobs[jobId] = token
 
@@ -65,6 +67,7 @@ class NleNativeExportRenderer(
             stage = "Accepted",
             progress = 0,
             terminal = false,
+            extraPayload = mapOf("requiresAudioMixdown" to needsAudioMixdown),
         )
 
         emitExportState(
@@ -76,11 +79,12 @@ class NleNativeExportRenderer(
             stage = "Preparing",
             progress = 0,
             terminal = false,
+            extraPayload = mapOf("requiresAudioMixdown" to needsAudioMixdown),
         )
 
         thread(name = "nle-native-export-$jobId") {
             try {
-                val rendererName = if (requiresCompositedExport(timeline)) {
+                val rendererName = if (requiresCompositedExport(timeline) || needsAudioMixdown) {
                     NleCompositedExportRenderer { type, payload ->
                         if (type == "export_progress") {
                             val stage = payload["stage"] as? String ?: "Unknown"
@@ -128,6 +132,7 @@ class NleNativeExportRenderer(
                             "fileSize" to outputFile.length(),
                             "renderer" to rendererName,
                             "preferProxy" to preferProxyForExport,
+                            "requiresAudioMixdown" to needsAudioMixdown,
                         ),
                     ),
                 )
@@ -173,7 +178,7 @@ class NleNativeExportRenderer(
             }
         }
 
-        return mapOf("jobId" to jobId, "accepted" to true, "exportState" to "preparing", "nativeRenderer" to "android_native_export_v2", "preferProxy" to preferProxyForExport)
+        return mapOf("jobId" to jobId, "accepted" to true, "exportState" to "preparing", "nativeRenderer" to "android_native_export_v2", "preferProxy" to preferProxyForExport, "requiresAudioMixdown" to needsAudioMixdown)
     }
 
     fun cancel(jobId: String): Map<String, Any?> {
@@ -207,6 +212,15 @@ class NleNativeExportRenderer(
         if (clip.rotation != 0f || clip.scale != 1f || clip.positionX != 0f || clip.positionY != 0f || clip.opacity != 1f) return true
         if (clip.brightness != 0f || clip.contrast != 1f || clip.saturation != 1f) return true
         return false
+    }
+
+    private fun requiresAudioMixdown(renderGraphJson: String): Boolean {
+        return try {
+            val root = JSONObject(renderGraphJson)
+            root.optJSONObject("exportHints")?.optBoolean("requiresAudioMixdown", false) == true
+        } catch (_: Throwable) {
+            renderGraphJson.contains("\"requiresAudioMixdown\":true")
+        }
     }
 
     private fun renderPassThroughSingleClip(jobId: String, projectId: String, timeline: NleTrueExportTimeline, outputPath: String, token: NleExportCancellationToken) {
