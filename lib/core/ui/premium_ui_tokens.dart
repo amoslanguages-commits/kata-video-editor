@@ -40,7 +40,7 @@ class PremiumShadows {
 
   static List<BoxShadow> soft = [
     BoxShadow(
-      color: Colors.black.withOpacity(0.18),
+      color: Colors.black.withValues(alpha: 0.18),
       blurRadius: 18,
       offset: const Offset(0, 10),
     ),
@@ -49,7 +49,7 @@ class PremiumShadows {
   static List<BoxShadow> glow(Color color) {
     return [
       BoxShadow(
-        color: color.withOpacity(0.22),
+        color: color.withValues(alpha: 0.22),
         blurRadius: 24,
         offset: const Offset(0, 10),
       ),
