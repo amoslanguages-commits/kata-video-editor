@@ -7,6 +7,7 @@ import 'package:nle_editor/presentation/providers/editor_providers.dart';
 import 'package:nle_editor/presentation/screens/editor/editor_screen.dart';
 import 'package:nle_editor/presentation/screens/projects/create_project_flow_screen.dart';
 import 'package:nle_editor/presentation/screens/settings/settings_screen.dart';
+import 'package:nle_editor/presentation/screens/pro/pro_control_center_screen.dart';
 import 'package:nle_editor/presentation/widgets/recovery/recovery_badge.dart';
 import 'package:shimmer/shimmer.dart';
 
@@ -28,9 +29,6 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
   @override
   void initState() {
     super.initState();
-    // On first launch, mark any jobs that were still "running" from a previous
-    // session as interrupted/failed. Does not notify the user with a banner —
-    // they'll see the badge on affected project cards via the error log.
     WidgetsBinding.instance.addPostFrameCallback((_) async {
       await ref
           .read(interruptedJobRecoveryServiceProvider)
@@ -304,6 +302,33 @@ class _ProjectCard extends ConsumerWidget {
                             _getIconForAspectRatio(project.aspectRatio),
                             color: AppTheme.textMuted.withValues(alpha: 0.5),
                             size: 32,
+                          ),
+                        ),
+                      ),
+                    ),
+                    Positioned(
+                      top: 8,
+                      left: 8,
+                      child: Material(
+                        color: Colors.black.withValues(alpha: 0.42),
+                        borderRadius: BorderRadius.circular(12),
+                        child: InkWell(
+                          borderRadius: BorderRadius.circular(12),
+                          onTap: () {
+                            ref.read(selectedProjectIdProvider.notifier).state = project.id;
+                            Navigator.of(context).push(
+                              MaterialPageRoute(
+                                builder: (_) => ProControlCenterScreen(projectId: project.id),
+                              ),
+                            );
+                          },
+                          child: const Padding(
+                            padding: EdgeInsets.all(8),
+                            child: Icon(
+                              Icons.auto_awesome_rounded,
+                              color: AppTheme.accentPrimary,
+                              size: 18,
+                            ),
                           ),
                         ),
                       ),
