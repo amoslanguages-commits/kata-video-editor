@@ -302,14 +302,21 @@ class ExportPreflightService {
   }
 
   String? _resolveAssetPath(Map<String, dynamic> asset, {required bool preferProxy}) {
+    final selected = _string(asset['resolvedPath']) ?? _string(asset['selectedMediaPath']);
     final proxy = _string(asset['proxyPath']) ?? _string(asset['proxy_uri']);
-    final original = _string(asset['exportPath']) ??
+    final original = _string(asset['projectPath']) ??
+        _string(asset['exportPath']) ??
         _string(asset['sourcePath']) ??
         _string(asset['originalPath']) ??
         _string(asset['filePath']) ??
         _string(asset['path']) ??
         _string(asset['uri']);
-    final candidates = preferProxy ? [proxy, original] : [original, proxy];
+    final candidates = [
+      selected,
+      if (preferProxy) proxy,
+      original,
+      if (!preferProxy) proxy,
+    ];
     for (final candidate in candidates) {
       if (candidate != null && candidate.trim().isNotEmpty) return candidate.trim();
     }
@@ -323,10 +330,13 @@ class ExportPreflightService {
     required int frameRate,
     required Map<String, dynamic> settings,
   }) {
+    final fallbackBitrate = ((width * height * frameRate) ~/ 2)
+        .clamp(4 * 1000 * 1000, 60 * 1000 * 1000)
+        .toInt();
     final bitrate = _int(settings['videoBitrate']) ??
         _int(settings['videoBitrateBps']) ??
         _int(settings['bitRate']) ??
-        ((width * height * frameRate) ~/ 2).clamp(4 * 1000 * 1000, 60 * 1000 * 1000);
+        fallbackBitrate;
     final audioBitrate = _int(settings['audioBitrate']) ?? 192000;
     final seconds = durationMicros / 1000000.0;
     final totalBits = (bitrate + audioBitrate) * seconds;
