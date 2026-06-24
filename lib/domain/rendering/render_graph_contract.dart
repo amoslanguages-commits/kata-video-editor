@@ -6,7 +6,7 @@ class RenderGraphContract {
 
   static const String source = 'flutter_multitrack_timeline';
 
-  static const String nativeBridgeName = 'nle.native_bridge';
+  static const String nativeBridgeName = 'nle_editor/native_methods';
   static const int nativeBridgeProtocolVersion = 1;
   static const int minNativeBridgeProtocolVersion = 1;
   static const int maxNativeBridgeProtocolVersion = 1;
