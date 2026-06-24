@@ -50,7 +50,7 @@ final exportReadinessProvider =
             : '$count timeline media files are unavailable. Open Storage > Media to relink them.';
       }
     },
-    error: (_) {
+    error: (_, __) {
       // Do not make export unavailable because an advisory media-health scan failed.
       // Missing files and decoder failures are still caught by native export state.
     },
