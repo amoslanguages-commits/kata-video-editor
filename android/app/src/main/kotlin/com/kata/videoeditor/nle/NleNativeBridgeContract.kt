@@ -3,7 +3,7 @@ package com.kata.videoeditor.nle
 import org.json.JSONObject
 
 object NleNativeBridgeContract {
-    const val METHOD_CHANNEL = "nle.native_bridge"
+    const val METHOD_CHANNEL = NleChannels.METHOD_CHANNEL
     const val PROTOCOL_VERSION = 1
     const val MIN_PROTOCOL_VERSION = 1
     const val MAX_PROTOCOL_VERSION = 1
