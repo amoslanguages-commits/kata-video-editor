@@ -3,10 +3,28 @@ import 'package:drift/drift.dart';
 import 'package:nle_editor/data/database/app_database.dart';
 
 extension MediaRecordDatabaseExtensions on AppDatabase {
-  Future<void> saveUnavailableMediaRecord(
+  Future<void> upsertMissingMediaRecord(
     MissingMediaRecordsCompanion companion,
   ) {
     return into(missingMediaRecords).insertOnConflictUpdate(companion);
+  }
+
+  Future<void> saveUnavailableMediaRecord(
+    MissingMediaRecordsCompanion companion,
+  ) {
+    return upsertMissingMediaRecord(companion);
+  }
+
+  Future<void> updateMediaAssetPath({
+    required String assetId,
+    required String originalPath,
+    required String availability,
+  }) {
+    return updateCanonicalMediaPath(
+      assetId: assetId,
+      originalPath: originalPath,
+      availability: availability,
+    );
   }
 
   Future<void> updateCanonicalMediaPath({
