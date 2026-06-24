@@ -18,7 +18,7 @@ class LruMemoryCache<T> {
   final int maxCostBytes;
   final void Function(T value)? onEvict;
 
-  final _entries = LinkedHashMap<String, LruCacheEntry<T>>();
+  final _entries = <String, LruCacheEntry<T>>{};
 
   int _currentCostBytes = 0;
 
