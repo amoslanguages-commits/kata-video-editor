@@ -3,6 +3,11 @@ package com.kata.videoeditor.nle
 import android.content.Context
 import com.kata.videoeditor.nle.export.NleNativeExportRenderer
 import com.kata.videoeditor.nle.proxy.NleNativeProxyRenderer
+import com.nle.editor.color.NleDeviceColorCapability
+import com.nle.editor.color.NleDeviceColorCapabilityScanner
+import com.nle.editor.deviceqa.NleDeviceCapabilityCollector
+import com.nle.editor.deviceqa.NleDeviceCapabilityReport
+import com.nle.editor.deviceqa.toPayload
 import com.nle.editor.preview.NleFlutterPreviewTextureManager
 import com.nle.editor.preview.NlePreviewConfig
 import com.nle.editor.preview.NlePreviewEventSink
@@ -12,6 +17,7 @@ import com.nle.editor.rendergraph.NleRenderGraphParser
 import com.nle.editor.scopes.NleScopeManager
 import com.nle.editor.scopes.NleScopeSettings
 import io.flutter.view.TextureRegistry
+import kotlin.math.max
 
 class NleEngineManager(
     private val appContext: Context,
@@ -27,6 +33,8 @@ class NleEngineManager(
     private val scopeManager = NleScopeManager()
     private val nativeExportRenderer = NleNativeExportRenderer(eventEmitter)
     private val nativeProxyRenderer = NleNativeProxyRenderer(eventEmitter)
+    private val deviceCapabilityCollector by lazy { NleDeviceCapabilityCollector(appContext) }
+    private val colorCapabilityScanner by lazy { NleDeviceColorCapabilityScanner(appContext) }
 
     fun initialize(): Map<String, Any?> {
         initialized = true
@@ -182,7 +190,25 @@ class NleEngineManager(
 
     fun probeDeviceCapabilities(): Map<String, Any?> {
         requireInit()
-        return mapOf("available" to true)
+        val report = deviceCapabilityCollector.collect()
+        val colorCapability = colorCapabilityScanner.scan()
+        val adaptiveExportProfile = buildAdaptiveExportProfile(report, colorCapability)
+        val payload = mapOf(
+            "available" to true,
+            "profileSchema" to "nle.device_capability_profile",
+            "profileVersion" to 1,
+            "generatedAtMs" to report.generatedAtMs,
+            "deviceCapability" to report.toPayload(),
+            "colorCapability" to colorCapability.toPayload(),
+            "adaptiveExportProfile" to adaptiveExportProfile,
+        )
+        eventEmitter.emit(
+            NleNativeEvent(
+                type = NleNativeEventType.DEVICE_CAPABILITIES,
+                payload = payload,
+            ),
+        )
+        return payload
     }
 
     fun getSessionState(projectId: String): Map<String, Any?> {
@@ -260,102 +286,83 @@ class NleEngineManager(
                 payload = mapOf("timelineTimeMicros" to timelineTimeMicros, "surfacesRendered" to rendered),
             ),
         )
-        return mapOf("surfacesRendered" to rendered)
+        return mapOf("rendered" to true, "surfacesRendered" to rendered)
     }
 
     private fun requireInit() {
         if (!initialized) throw IllegalStateException(NleNativeErrorCode.ENGINE_NOT_INITIALIZED)
     }
 
-    fun prepareTruePreview(monitorId: String = "program", projectId: String, renderGraphJson: String, qualityMode: String, preferProxy: Boolean, maxPreviewWidth: Int, maxPreviewHeight: Int): Map<String, Any?> {
-        requireInit()
-        val qMode = when (qualityMode.lowercase()) {
-            "performance" -> NlePreviewQualityMode.PERFORMANCE
-            "balanced" -> NlePreviewQualityMode.BALANCED
-            "quality" -> NlePreviewQualityMode.QUALITY
-            else -> NlePreviewQualityMode.AUTO
+    private fun buildAdaptiveExportProfile(
+        report: NleDeviceCapabilityReport,
+        colorCapability: NleDeviceColorCapability,
+    ): Map<String, Any?> {
+        val recommendation = report.recommendation
+        val codec = report.codecReport
+        val thermal = report.thermalReport
+        val maxLongEdge = max(recommendation.maxExportWidth, recommendation.maxExportHeight)
+        val maxResolution = when {
+            !codec.hasH264Encoder -> 0
+            maxLongEdge >= 3840 && recommendation.allow4kExport -> 2160
+            maxLongEdge >= 1920 && codec.supports1080pExport -> 1080
+            else -> 720
         }
-        previewManagerFor(monitorId).prepare(
-            NlePreviewConfig(
-                projectId = projectId,
-                renderGraphJson = renderGraphJson,
-                qualityMode = qMode,
-                preferProxy = preferProxy,
-                maxPreviewWidth = maxPreviewWidth,
-                maxPreviewHeight = maxPreviewHeight,
-            ),
+        val maxFrameRate = recommendation.maxFrameRate.toInt().coerceIn(24, 60)
+        val maxVideoBitrate = when (maxResolution) {
+            2160 -> if (maxFrameRate > 30) 60_000_000 else 40_000_000
+            1080 -> if (maxFrameRate > 30) 20_000_000 else 16_000_000
+            720 -> 5_000_000
+            else -> 0
+        }
+        val audioBitrate = if (codec.hasAacEncoder) 192_000 else 0
+        val exportBlocked = !codec.hasH264Encoder || !codec.hasAacEncoder || !report.eglReport.eglAvailable || thermal.shouldBlockLongExport
+        val preferredPreviewScale = when (recommendation.previewQuality) {
+            "quality" -> 1.0
+            "balanced" -> 0.75
+            "performance" -> 0.5
+            else -> 0.75
+        }
+        val proxyPolicy = when {
+            report.deviceTier.name == "LOW_END" -> "required"
+            recommendation.requireProxyFor4k -> "required_for_4k"
+            else -> "optional"
+        }
+
+        return mapOf(
+            "maxResolution" to maxResolution,
+            "maxFrameRate" to maxFrameRate,
+            "maxVideoBitrate" to maxVideoBitrate,
+            "audioBitrate" to audioBitrate,
+            "preferProxyPreview" to recommendation.preferProxyPreview,
+            "proxyPolicy" to proxyPolicy,
+            "requireProxyFor4k" to recommendation.requireProxyFor4k,
+            "allow4kExport" to recommendation.allow4kExport,
+            "exportBlocked" to exportBlocked,
+            "blockReason" to buildList {
+                if (!codec.hasH264Encoder) add("missing_h264_encoder")
+                if (!codec.hasAacEncoder) add("missing_aac_encoder")
+                if (!report.eglReport.eglAvailable) add("egl_unavailable")
+                if (thermal.shouldBlockLongExport) add("thermal_block")
+            },
+            "previewQuality" to recommendation.previewQuality,
+            "preferredPreviewScale" to preferredPreviewScale,
+            "colorPipelineQuality" to colorCapability.recommendedQuality.name.lowercase(),
+            "supportsHdrExport" to colorCapability.supportsHdrExport,
+            "supportsWideColorPreview" to colorCapability.supportsWideColorPreview,
+            "notes" to recommendation.notes,
         )
-        return mapOf("prepared" to true, "monitorId" to monitorId)
     }
 
-    fun renderPreviewFrame(monitorId: String = "program", timelineTimeUs: Long): Map<String, Any?> {
-        requireInit()
-        val result = previewManagerFor(monitorId).renderFrame(timelineTimeUs)
-        if (!result.rendered) {
-            throw IllegalStateException(result.reason ?: "Native preview frame failed.")
-        }
-        return mapOf("rendered" to true, "timelineTimeUs" to result.timelineTimeUs, "monitorId" to monitorId)
-    }
-
-    fun startTruePreview(monitorId: String = "program", fromTimelineTimeUs: Long): Map<String, Any?> {
-        requireInit()
-        val manager = previewManagerFor(monitorId)
-        val graph = manager.currentGraph()
-            ?: throw IllegalStateException("Native preview graph is not prepared.")
-        if (graph.project.durationUs <= 0L) {
-            throw IllegalStateException("Native preview graph has empty duration.")
-        }
-        manager.play(fromTimelineTimeUs)
-        return mapOf("playing" to true, "monitorId" to monitorId)
-    }
-
-    fun pauseTruePreview(monitorId: String = "program"): Map<String, Any?> {
-        requireInit()
-        previewManagerFor(monitorId).pause()
-        return mapOf("paused" to true, "monitorId" to monitorId)
-    }
-
-    fun stopTruePreview(monitorId: String = "program"): Map<String, Any?> {
-        requireInit()
-        previewManagerFor(monitorId).stop()
-        return mapOf("stopped" to true, "monitorId" to monitorId)
-    }
-
-    fun disposeTruePreview(monitorId: String = "program"): Map<String, Any?> {
-        requireInit()
-        truePreviewManagers.remove(monitorId)?.release()
-        return mapOf("disposed" to true, "monitorId" to monitorId)
-    }
-
-    fun setPreviewEventSink(sink: NlePreviewEventSink) {}
-
-    private fun previewManagerFor(monitorId: String): NlePreviewManager {
-        return truePreviewManagers.getOrPut(monitorId) {
-            NlePreviewManager(
-                textureRegistry = textureRegistry,
-                events = NlePreviewBridgeEventSink(monitorId) { type, payload ->
-                    eventEmitter.emit(NleNativeEvent(type = type, payload = payload))
-                },
-                scopeManager = scopeManager,
-                monitorId = monitorId,
-            )
-        }
-    }
-
-    fun configureScopes(payload: Map<String, Any?>) {
-        val settings = NleScopeSettings.fromPayload(payload)
-        scopeManager.configure(settings)
-    }
-
-    fun requestScopeFrame(monitorId: String, timestampMicros: Long) {
-        scopeManager.requestFrame(monitorId, timestampMicros)
-    }
-
-    fun startLiveScopes(monitorId: String) {
-        scopeManager.startLive(monitorId)
-    }
-
-    fun stopLiveScopes() {
-        scopeManager.stopLive()
-    }
+    private fun NleDeviceColorCapability.toPayload(): Map<String, Any?> = mapOf(
+        "supportsGles3" to supportsGles3,
+        "supportsHalfFloatRenderTarget" to supportsHalfFloatRenderTarget,
+        "supportsFloatRenderTarget" to supportsFloatRenderTarget,
+        "supportsWideColorPreview" to supportsWideColorPreview,
+        "supportsHdrPreview" to supportsHdrPreview,
+        "supportsHdrExport" to supportsHdrExport,
+        "maxTextureSize" to maxTextureSize,
+        "renderer" to renderer,
+        "vendor" to vendor,
+        "recommendedQuality" to recommendedQuality.name.lowercase(),
+    )
 }
