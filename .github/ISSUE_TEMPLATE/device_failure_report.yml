@@ -1,0 +1,67 @@
+name: Device failure report
+description: Report export, preview, proxy, storage, or device-specific failures
+title: "[Device Failure]: "
+labels:
+  - device-failure
+  - qa
+body:
+  - type: input
+    id: device
+    attributes:
+      label: Device model
+      description: Include manufacturer, model, RAM if known, and Android/iOS version.
+      placeholder: "Samsung Galaxy A14, Android 14, 4GB RAM"
+    validations:
+      required: true
+  - type: dropdown
+    id: area
+    attributes:
+      label: Failure area
+      options:
+        - Import
+        - Preview
+        - Timeline editing
+        - Proxy generation
+        - Export
+        - Audio mixdown
+        - Cache/storage cleanup
+        - App startup
+        - Other
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Reproduction steps
+      description: Write the exact steps that caused the failure.
+      placeholder: "1. Import 4K HEVC video...\n2. Add audio track...\n3. Export 1080p..."
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected result
+    validations:
+      required: true
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual result
+      description: Include visible error messages, failed stage, or wrong output.
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs / screenshots / attachments
+      description: Paste relevant logs or attach screenshots/videos.
+    validations:
+      required: false
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Checks
+      options:
+        - label: I tested with the latest master or current release-candidate build.
+        - label: I checked available storage before reproducing.
+        - label: I noted whether proxies were enabled.
