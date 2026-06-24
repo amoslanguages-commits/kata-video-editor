@@ -60,8 +60,13 @@ class NleTrueExportGraphParser {
     }
 
     private fun resolveAssetPath(obj: JSONObject, preferProxy: Boolean): String {
+        val selected = listOf(
+            obj.optString("resolvedPath", ""),
+            obj.optString("selectedMediaPath", ""),
+        )
         val proxyCandidates = listOf(obj.optString("proxyPath", ""), obj.optString("proxy_uri", ""))
         val originalCandidates = listOf(
+            obj.optString("projectPath", ""),
             obj.optString("exportPath", ""),
             obj.optString("sourcePath", ""),
             obj.optString("originalPath", ""),
@@ -69,7 +74,7 @@ class NleTrueExportGraphParser {
             obj.optString("path", ""),
             obj.optString("uri", ""),
         )
-        val candidates = if (preferProxy) proxyCandidates + originalCandidates else originalCandidates + proxyCandidates
+        val candidates = selected + if (preferProxy) proxyCandidates + originalCandidates else originalCandidates + proxyCandidates
         for (candidate in candidates) {
             if (candidate.isBlank()) continue
             if (candidate.startsWith("content://")) return candidate
