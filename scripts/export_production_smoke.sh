@@ -7,6 +7,7 @@ cd "$ROOT_DIR"
 flutter analyze
 flutter test test/domain/timeline
 
+bash scripts/media_architecture_audit.sh
 bash scripts/cache_index_smoke.sh
 bash scripts/proxy_smoke_android.sh
 bash scripts/export_smoke_android.sh
