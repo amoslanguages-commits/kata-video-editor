@@ -9,9 +9,28 @@ class NleMediaAsset {
   final NleMediaImportSource importSource;
   final NleMediaStorageMode storageMode;
   final NleMediaAvailability availability;
+  final NleMediaLifecycleState lifecycleState;
 
+  /// The immutable user/source location captured at import time.
+  ///
+  /// Never overwrite this during proxy generation, cache moves, render graph
+  /// building, export, missing-media checks, or relink operations.
   final String? originalPath;
+
+  /// The durable full-resolution path currently owned by the project, when the
+  /// media was copied into the local project folder.
   final String? projectPath;
+
+  /// The full-resolution path the app should use after availability/relink
+  /// resolution. This is separate from [originalPath] so relink does not erase
+  /// the original source path.
+  final String? resolvedPath;
+
+  /// The concrete path selected for the current media operation. Render/export
+  /// code should open this field, not [originalPath]. It may point at a proxy
+  /// when proxies are ready and preferred.
+  final String? selectedMediaPath;
+
   final String? thumbnailPath;
   final String? waveformCacheId;
   final String? proxyPath;
@@ -39,8 +58,11 @@ class NleMediaAsset {
     required this.importSource,
     required this.storageMode,
     required this.availability,
+    this.lifecycleState = NleMediaLifecycleState.imported,
     this.originalPath,
     this.projectPath,
+    this.resolvedPath,
+    this.selectedMediaPath,
     this.thumbnailPath,
     this.waveformCacheId,
     this.proxyPath,
@@ -57,73 +79,25 @@ class NleMediaAsset {
     required this.version,
   });
 
-  String? get originalMediaPath => _clean(originalPath);
-  String? get projectMediaPath => _clean(projectPath);
-  String? get proxyMediaPath => _clean(proxyPath);
-
-  /// Highest-quality editable path controlled by the app when available.
-  String? get originalQualityPath => projectMediaPath ?? originalMediaPath;
-
-  /// Path used for edit/preview when no proxy policy overrides it.
   String? get resolvedEditPath {
     if (availability != NleMediaAvailability.available) return null;
-    return originalQualityPath;
+    return selectedMediaPath ?? resolvedPath ?? projectPath ?? originalPath;
   }
 
-  /// Path used for original-quality export.
   String? get resolvedOriginalPath {
-    if (availability != NleMediaAvailability.available) return null;
-    return originalQualityPath;
+    return resolvedPath ?? projectPath ?? originalPath;
   }
-
-  bool get hasProxyFile => proxyMediaPath != null && proxyStatus == NleProxyStatus.ready;
 
   bool get isVideo => type == NleMediaAssetType.video;
   bool get isAudio => type == NleMediaAssetType.audio;
   bool get isImage => type == NleMediaAssetType.image;
   bool get isMissing => availability == NleMediaAvailability.missing;
   bool get isUsed => usageState != NleMediaUsageState.unused;
+  bool get hasProxyReady => proxyStatus == NleProxyStatus.ready &&
+      proxyPath != null &&
+      proxyPath!.trim().isNotEmpty;
 
   int get durationMicros => timecodeInfo.durationMicros;
-
-  bool get hasAnalysisData {
-    return fileInfo.hasFileIdentity ||
-        videoInfo.hasResolution ||
-        videoInfo.hasCodec ||
-        audioInfo.hasFormat ||
-        timecodeInfo.hasDuration;
-  }
-
-  NleMediaLifecycleStage get lifecycleStage {
-    switch (availability) {
-      case NleMediaAvailability.missing:
-        return NleMediaLifecycleStage.missing;
-      case NleMediaAvailability.offline:
-        return NleMediaLifecycleStage.offline;
-      case NleMediaAvailability.corrupted:
-        return NleMediaLifecycleStage.corrupted;
-      case NleMediaAvailability.available:
-        break;
-    }
-
-    switch (proxyStatus) {
-      case NleProxyStatus.ready:
-        return NleMediaLifecycleStage.proxyReady;
-      case NleProxyStatus.generating:
-        return NleMediaLifecycleStage.proxyGenerating;
-      case NleProxyStatus.queued:
-        return NleMediaLifecycleStage.proxyQueued;
-      case NleProxyStatus.failed:
-      case NleProxyStatus.none:
-        if (isVideo && hasAnalysisData && proxyMediaPath == null) {
-          return NleMediaLifecycleStage.proxyNeeded;
-        }
-    }
-
-    return hasAnalysisData
-        ? NleMediaLifecycleStage.analyzed
-        : NleMediaLifecycleStage.imported;
-  }
 
   Map<String, dynamic> toJson() {
     return {
@@ -134,14 +108,16 @@ class NleMediaAsset {
       'importSource': importSource.name,
       'storageMode': storageMode.name,
       'availability': availability.name,
+      'lifecycleState': lifecycleState.name,
       'originalPath': originalPath,
       'projectPath': projectPath,
+      'resolvedPath': resolvedPath,
+      'selectedMediaPath': selectedMediaPath,
       'thumbnailPath': thumbnailPath,
       'waveformCacheId': waveformCacheId,
       'proxyPath': proxyPath,
       'proxyStatus': proxyStatus.name,
       'usageState': usageState.name,
-      'lifecycleStage': lifecycleStage.name,
       'fileInfo': fileInfo.toJson(),
       'videoInfo': videoInfo.toJson(),
       'audioInfo': audioInfo.toJson(),
@@ -179,8 +155,15 @@ class NleMediaAsset {
         json['availability'],
         NleMediaAvailability.available,
       ),
+      lifecycleState: _enumByName(
+        NleMediaLifecycleState.values,
+        json['lifecycleState'],
+        NleMediaLifecycleState.imported,
+      ),
       originalPath: json['originalPath']?.toString(),
       projectPath: json['projectPath']?.toString(),
+      resolvedPath: json['resolvedPath']?.toString(),
+      selectedMediaPath: json['selectedMediaPath']?.toString(),
       thumbnailPath: json['thumbnailPath']?.toString(),
       waveformCacheId: json['waveformCacheId']?.toString(),
       proxyPath: json['proxyPath']?.toString(),
@@ -222,8 +205,11 @@ class NleMediaAsset {
     String? displayName,
     NleMediaAssetType? type,
     NleMediaAvailability? availability,
+    NleMediaLifecycleState? lifecycleState,
     String? originalPath,
     String? projectPath,
+    String? resolvedPath,
+    String? selectedMediaPath,
     String? thumbnailPath,
     String? waveformCacheId,
     String? proxyPath,
@@ -246,8 +232,11 @@ class NleMediaAsset {
       importSource: importSource,
       storageMode: storageMode,
       availability: availability ?? this.availability,
+      lifecycleState: lifecycleState ?? this.lifecycleState,
       originalPath: originalPath ?? this.originalPath,
       projectPath: projectPath ?? this.projectPath,
+      resolvedPath: resolvedPath ?? this.resolvedPath,
+      selectedMediaPath: selectedMediaPath ?? this.selectedMediaPath,
       thumbnailPath: thumbnailPath ?? this.thumbnailPath,
       waveformCacheId: waveformCacheId ?? this.waveformCacheId,
       proxyPath: proxyPath ?? this.proxyPath,
@@ -263,12 +252,6 @@ class NleMediaAsset {
       updatedAt: updatedAt ?? DateTime.now(),
       version: version ?? this.version,
     );
-  }
-
-  static String? _clean(String? value) {
-    final trimmed = value?.trim();
-    if (trimmed == null || trimmed.isEmpty) return null;
-    return trimmed;
   }
 }
 
