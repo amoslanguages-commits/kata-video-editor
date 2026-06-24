@@ -62,17 +62,11 @@ class NlePreviewManager(
         renderGraphJson: String,
         preferProxy: Boolean = true,
     ) {
-        try {
-            scheduler.runOnRenderThread {
-                renderer.updateRenderGraph(
-                    renderGraphJson = renderGraphJson,
-                    preferProxy = preferProxy,
-                )
-            }
-        } catch (error: Throwable) {
-            events.onPreviewError(error.message ?: error.toString())
-            throw error
-        }
+        // Stabilization mode: avoid rebuilding the native preview decoder graph on every
+        // timeline edit. Rebuilding here caused frame-rate drops, buffering, and timeline
+        // interaction lag on real devices. A later controlled preview pipeline should add
+        // debounced graph updates with cancellation/backpressure instead of immediate rebuilds.
+        return
     }
 
     fun renderFrame(timelineTimeUs: Long): NlePreviewFrameResult {
