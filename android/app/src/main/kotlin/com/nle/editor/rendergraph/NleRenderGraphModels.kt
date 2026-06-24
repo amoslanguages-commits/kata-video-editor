@@ -42,7 +42,11 @@ data class NleRenderAsset(
     val id: String,
     val type: String,
     val originalPath: String?,
+    val projectPath: String?,
     val proxyPath: String?,
+    val resolvedPath: String?,
+    val sourcePolicy: String,
+    val usedProxy: Boolean,
     val thumbnailPath: String?,
     val displayName: String?,
     val durationUs: Long,
@@ -139,109 +143,24 @@ data class NleRenderText(
 )
 
 data class NleRenderComposition(
-    val visualTrackIdsBottomToTop: List<String>,
-    val enabledVisualTrackIdsBottomToTop: List<String>,
-    val audioTrackIds: List<String>,
-    val enabledAudioTrackIds: List<String>,
-    val hasSoloAudio: Boolean,
-    val hasHiddenTracks: Boolean,
-    val visualLayerCount: Int,
-    val audioLayerCount: Int,
+    val durationUs: Long,
+    val videoTrackCount: Int,
+    val audioTrackCount: Int,
+    val clipCount: Int,
+    val hasOverlays: Boolean,
+    val hasText: Boolean,
+    val hasAudio: Boolean,
 )
 
 data class NleRenderExportHints(
-    val useProxyForPreview: Boolean,
+    val requiresCompositing: Boolean,
+    val requiresAudioMixdown: Boolean,
+    val requiresColorPipeline: Boolean,
+    val requiresTextLayout: Boolean,
     val useOriginalForExport: Boolean,
-    val requiresGpuCompositor: Boolean,
-    val containsText: Boolean,
-    val containsImage: Boolean,
-    val containsVideo: Boolean,
-    val containsAudio: Boolean,
-    val containsAdjustment: Boolean,
-    val containsColorAdjustments: Boolean,
-    val containsCrop: Boolean,
-    val containsSpeedChanges: Boolean,
-    val containsFades: Boolean,
-    val containsLut: Boolean = false,
-    val containsColorCurves: Boolean = false,
-    val containsSecondaryGrades: Boolean = false,
 )
 
 data class NleRenderEffectChain(
-    val ownerId: String,
-    val ownerType: String,
-    val slots: List<NleRenderEffectSlot>,
     val enabled: Boolean,
-)
-
-data class NleRenderEffectSlot(
-    val id: String,
-    val type: String,
-    val name: String,
-    val order: Int,
-    val active: Boolean,
-    val wetMix: Float,
-    val eq3Band: NleEq3BandSettings?,
-    val compressor: NleCompressorSettings?,
-    val limiter: NleLimiterSettings?,
-    val noiseGate: NleNoiseGateSettings?,
-    val noiseReduction: NleNoiseReductionSettings?,
-    val reverb: NleReverbSettings?,
-    val pitchTempo: NlePitchTempoSettings?,
-    val voiceEnhancer: NleVoiceEnhancerSettings?,
-)
-
-data class NleEq3BandSettings(
-    val lowGainDb: Float,
-    val midGainDb: Float,
-    val highGainDb: Float,
-    val lowFrequencyHz: Float,
-    val highFrequencyHz: Float,
-)
-
-data class NleCompressorSettings(
-    val thresholdDb: Float,
-    val ratio: Float,
-    val attackMs: Float,
-    val releaseMs: Float,
-    val makeupGainDb: Float,
-    val kneeDb: Float,
-)
-
-data class NleLimiterSettings(
-    val ceilingDb: Float,
-    val releaseMs: Float,
-    val truePeakSafe: Boolean,
-)
-
-data class NleNoiseGateSettings(
-    val thresholdDb: Float,
-    val reductionDb: Float,
-    val attackMs: Float,
-    val releaseMs: Float,
-)
-
-data class NleNoiseReductionSettings(
-    val amount: Float,
-    val voiceOptimized: Boolean,
-)
-
-data class NleReverbSettings(
-    val roomSize: Float,
-    val damping: Float,
-    val wet: Float,
-    val dry: Float,
-)
-
-data class NlePitchTempoSettings(
-    val pitchSemitones: Float,
-    val tempoMultiplier: Float,
-    val preserveFormants: Boolean,
-)
-
-data class NleVoiceEnhancerSettings(
-    val clarity: Float,
-    val body: Float,
-    val air: Float,
-    val deEss: Float,
+    val nodes: List<Map<String, Any?>>,
 )
