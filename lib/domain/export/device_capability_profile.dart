@@ -207,7 +207,9 @@ class AdaptiveExportSettingsResolver {
   }) {
     final reasons = <String>[];
     if (profile.exportBlocked) {
-      reasons.addAll(profile.blockReason.isEmpty ? ['export_blocked_by_device'] : profile.blockReason);
+      reasons.addAll(
+        profile.blockReason.isEmpty ? ['export_blocked_by_device'] : profile.blockReason,
+      );
     }
 
     final maxResolution = profile.maxResolution <= 0 ? requested.longEdge : profile.maxResolution;
@@ -215,26 +217,31 @@ class AdaptiveExportSettingsResolver {
     final scale = requestedLongEdge <= maxResolution
         ? 1.0
         : maxResolution / requestedLongEdge;
-    final resolvedWidth = _even((requested.width * scale).round()).clamp(2, requested.width);
-    final resolvedHeight = _even((requested.height * scale).round()).clamp(2, requested.height);
+    final resolvedWidth = _even((requested.width * scale).round())
+        .clamp(2, requested.width)
+        .toInt();
+    final resolvedHeight = _even((requested.height * scale).round())
+        .clamp(2, requested.height)
+        .toInt();
 
     if (scale < 1.0) {
       reasons.add('resolution_clamped_to_${maxResolution}p');
     }
 
-    final resolvedFrameRate = requested.frameRate.clamp(24, profile.maxFrameRate <= 0 ? requested.frameRate : profile.maxFrameRate);
+    final maxFrameRate = profile.maxFrameRate <= 0 ? requested.frameRate : profile.maxFrameRate;
+    final resolvedFrameRate = requested.frameRate.clamp(24, maxFrameRate).toInt();
     if (resolvedFrameRate != requested.frameRate) {
       reasons.add('frame_rate_clamped_to_$resolvedFrameRate');
     }
 
     final maxVideoBitrate = profile.maxVideoBitrate <= 0 ? requested.videoBitrate : profile.maxVideoBitrate;
-    final resolvedVideoBitrate = requested.videoBitrate.clamp(1, maxVideoBitrate);
+    final resolvedVideoBitrate = requested.videoBitrate.clamp(1, maxVideoBitrate).toInt();
     if (resolvedVideoBitrate != requested.videoBitrate) {
       reasons.add('video_bitrate_clamped');
     }
 
     final maxAudioBitrate = profile.audioBitrate <= 0 ? requested.audioBitrate : profile.audioBitrate;
-    final resolvedAudioBitrate = requested.audioBitrate.clamp(64000, maxAudioBitrate);
+    final resolvedAudioBitrate = requested.audioBitrate.clamp(64000, maxAudioBitrate).toInt();
     if (resolvedAudioBitrate != requested.audioBitrate) {
       reasons.add('audio_bitrate_clamped');
     }
