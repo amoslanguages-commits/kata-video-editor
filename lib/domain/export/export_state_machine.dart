@@ -86,6 +86,20 @@ class ExportFailure {
     this.context = const {},
   });
 
+  factory ExportFailure.fromJson(Map<String, Object?> json) {
+    return ExportFailure(
+      code: json['code']?.toString() ?? ExportErrorCode.unknown,
+      severity: json['severity']?.toString() ?? ExportErrorSeverity.fatal,
+      userMessage: json['userMessage']?.toString() ??
+          json['message']?.toString() ??
+          'Export failed.',
+      technicalMessage: json['technicalMessage']?.toString(),
+      recoverySuggestion: json['recoverySuggestion']?.toString(),
+      retryable: json['retryable'] == true,
+      context: _objectMap(json['context']),
+    );
+  }
+
   Map<String, Object?> toJson() => {
         'code': code,
         'severity': severity,
@@ -127,6 +141,42 @@ class ExportStateTransition {
       };
 }
 
+class ExportStateSnapshot {
+  final String state;
+  final String previousState;
+  final int progress;
+  final String stage;
+  final bool terminal;
+  final ExportFailure? failure;
+  final Map<String, Object?> rawPayload;
+
+  const ExportStateSnapshot({
+    required this.state,
+    required this.previousState,
+    required this.progress,
+    required this.stage,
+    required this.terminal,
+    this.failure,
+    this.rawPayload = const {},
+  });
+
+  factory ExportStateSnapshot.fromNativePayload(Map<String, Object?> payload) {
+    final state = payload['exportState']?.toString() ??
+        payload['state']?.toString() ??
+        ExportJobState.created;
+    final error = _objectMap(payload['error']);
+    return ExportStateSnapshot(
+      state: state,
+      previousState: payload['previousState']?.toString() ?? state,
+      progress: _int(payload['progress']) ?? 0,
+      stage: payload['stage']?.toString() ?? 'Waiting',
+      terminal: payload['terminal'] == true || ExportJobState.isTerminal(state),
+      failure: error.isEmpty ? null : ExportFailure.fromJson(error),
+      rawPayload: payload,
+    );
+  }
+}
+
 class ExportStateMachine {
   String _state;
   int _progress;
@@ -140,7 +190,7 @@ class ExportStateMachine {
   })  : _state = initialState,
         _progress = initialProgress,
         _stage = initialStage,
-        _history = const [];
+        _history = <ExportStateTransition>[];
 
   String get state => _state;
   int get progress => _progress;
@@ -177,11 +227,33 @@ class ExportStateMachine {
     return transition;
   }
 
+  ExportStateTransition applyNativeSnapshot(ExportStateSnapshot snapshot) {
+    return transitionTo(
+      snapshot.state,
+      stage: snapshot.stage,
+      progress: snapshot.progress,
+      failure: snapshot.failure,
+      context: snapshot.rawPayload,
+    );
+  }
+
   int _normalizeProgress(String state, int progress) {
     if (state == ExportJobState.completed) return 100;
-    if (state == ExportJobState.cancelled || state == ExportJobState.failed) {
-      return progress.clamp(0, 99).toInt();
-    }
     return progress.clamp(0, 99).toInt();
   }
+}
+
+Map<String, Object?> _objectMap(Object? value) {
+  if (value is Map<String, Object?>) return value;
+  if (value is Map) {
+    return value.map((key, value) => MapEntry(key.toString(), value));
+  }
+  return const <String, Object?>{};
+}
+
+int? _int(Object? value) {
+  if (value is int) return value;
+  if (value is num) return value.toInt();
+  if (value is String) return int.tryParse(value);
+  return null;
 }
