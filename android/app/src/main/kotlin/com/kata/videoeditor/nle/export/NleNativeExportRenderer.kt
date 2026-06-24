@@ -56,12 +56,50 @@ class NleNativeExportRenderer(
         val token = NleExportCancellationToken()
         runningJobs[jobId] = token
 
-        emit(jobId, safeProjectId, "export_started", mapOf("stage" to "Preparing", "progress" to 0, "preferProxy" to preferProxyForExport))
+        emitExportState(
+            jobId = jobId,
+            projectId = safeProjectId,
+            eventType = "export_accepted",
+            previousState = "created",
+            exportState = "accepted",
+            stage = "Accepted",
+            progress = 0,
+            terminal = false,
+        )
+
+        emitExportState(
+            jobId = jobId,
+            projectId = safeProjectId,
+            eventType = "export_started",
+            previousState = "accepted",
+            exportState = "preparing",
+            stage = "Preparing",
+            progress = 0,
+            terminal = false,
+        )
 
         thread(name = "nle-native-export-$jobId") {
             try {
                 val rendererName = if (requiresCompositedExport(timeline)) {
-                    NleCompositedExportRenderer { type, payload -> emit(jobId, safeProjectId, type, payload) }.render(
+                    NleCompositedExportRenderer { type, payload ->
+                        if (type == "export_progress") {
+                            val stage = payload["stage"] as? String ?: "Unknown"
+                            val progress = (payload["progress"] as? Number)?.toInt() ?: 0
+                            val newExportState = exportStateForStage(stage, progress)
+                            emitExportState(
+                                jobId = jobId,
+                                projectId = safeProjectId,
+                                eventType = type,
+                                previousState = "preparing",
+                                exportState = newExportState,
+                                stage = stage,
+                                progress = progress,
+                                terminal = false,
+                            )
+                        } else {
+                            emit(jobId, safeProjectId, type, payload)
+                        }
+                    }.render(
                         jobId = jobId,
                         renderGraphJson = renderGraphJson,
                         outputPath = outputPath,
@@ -75,13 +113,16 @@ class NleNativeExportRenderer(
                 }
                 runningJobs.remove(jobId)
                 val outputFile = File(outputPath)
-                emit(
-                    jobId,
-                    safeProjectId,
-                    "export_completed",
-                    mapOf(
-                        "stage" to "Complete",
-                        "progress" to 100,
+                emitExportState(
+                    jobId = jobId,
+                    projectId = safeProjectId,
+                    eventType = "export_completed",
+                    previousState = "finalizing",
+                    exportState = "completed",
+                    stage = "Complete",
+                    progress = 100,
+                    terminal = true,
+                    extraPayload = mapOf(
                         "result" to mapOf(
                             "outputPath" to outputPath,
                             "fileSize" to outputFile.length(),
@@ -93,21 +134,69 @@ class NleNativeExportRenderer(
             } catch (cancelled: NleExportCancelledException) {
                 runningJobs.remove(jobId)
                 File(outputPath).delete()
-                emit(jobId, safeProjectId, "export_cancelled", mapOf("stage" to "Cancelled"))
+                val errorPayload = exportErrorPayload(
+                    code = "export_cancelled",
+                    severity = "info",
+                    userMessage = "Export was cancelled.",
+                    technicalMessage = "User cancelled the export operation.",
+                    recoverySuggestion = "Try exporting again.",
+                    retryable = true,
+                )
+                emitExportState(
+                    jobId = jobId,
+                    projectId = safeProjectId,
+                    eventType = "export_cancelled",
+                    previousState = "cancel_requested",
+                    exportState = "cancelled",
+                    stage = "Cancelled",
+                    progress = 0,
+                    terminal = true,
+                    extraPayload = mapOf("error" to errorPayload),
+                )
             } catch (error: Throwable) {
                 runningJobs.remove(jobId)
-                val message = error.message ?: error.toString()
-                emit(jobId, safeProjectId, "export_failed", mapOf("errorMessage" to message, "stage" to "Failed"))
+                val errorPayload = exportErrorFor(error)
+                emitExportState(
+                    jobId = jobId,
+                    projectId = safeProjectId,
+                    eventType = "export_failed",
+                    previousState = "rendering",
+                    exportState = "failed",
+                    stage = "Failed",
+                    progress = 0,
+                    terminal = true,
+                    extraPayload = mapOf(
+                        "error" to errorPayload,
+                        "errorMessage" to (errorPayload["userMessage"] as? String ?: "Unknown error"),
+                    ),
+                )
             }
         }
 
-        return mapOf("jobId" to jobId, "accepted" to true, "nativeRenderer" to "android_native_export_v2", "preferProxy" to preferProxyForExport)
+        return mapOf("jobId" to jobId, "accepted" to true, "exportState" to "preparing", "nativeRenderer" to "android_native_export_v2", "preferProxy" to preferProxyForExport)
     }
 
     fun cancel(jobId: String): Map<String, Any?> {
         val token = runningJobs.remove(jobId)
-        token?.cancelled = true
-        return mapOf("jobId" to jobId, "cancelled" to true)
+        return if (token != null) {
+            token.cancelled = true
+            mapOf("jobId" to jobId, "cancelRequested" to true, "exportState" to "cancel_requested")
+        } else {
+            val errorPayload = exportErrorPayload(
+                code = "export_job_not_found",
+                severity = "fatal",
+                userMessage = "Export job not found.",
+                technicalMessage = "The specified export job ID does not exist or has already completed.",
+                recoverySuggestion = "Verify the job ID and try again.",
+                retryable = false,
+            )
+            mapOf(
+                "jobId" to jobId,
+                "cancelRequested" to false,
+                "exportState" to "failed",
+                "error" to errorPayload,
+            )
+        }
     }
 
     private fun requiresCompositedExport(timeline: NleTrueExportTimeline): Boolean {
@@ -130,10 +219,21 @@ class NleNativeExportRenderer(
         val outputFile = File(outputPath)
         outputFile.parentFile?.mkdirs()
         if (outputFile.exists()) outputFile.delete()
-        emit(jobId, projectId, "export_progress", mapOf("stage" to "Muxing", "progress" to 3))
 
-        val trackFormats = readSupportedTrackFormats(asset.path)
-        if (trackFormats.isEmpty()) throw IllegalStateException("No video/audio tracks could be read from ${asset.path}.")
+        emitExportState(
+            jobId = jobId,
+            projectId = projectId,
+            eventType = "export_progress",
+            previousState = "preparing",
+            exportState = "muxing",
+            stage = "Muxing",
+            progress = 3,
+            terminal = false,
+        )
+
+        val assetPath = asset.decoderPath
+        val trackFormats = readSupportedTrackFormats(assetPath)
+        if (trackFormats.isEmpty()) throw IllegalStateException("No video/audio tracks could be read from $assetPath.")
 
         var muxer: MediaMuxer? = null
         try {
@@ -146,7 +246,7 @@ class NleNativeExportRenderer(
             for ((sourceTrack, muxerTrack) in muxerTrackMap) {
                 if (token.cancelled) throw NleExportCancelledException()
                 copyTrackSamples(
-                    assetPath = asset.path,
+                    assetPath = assetPath,
                     sourceTrack = sourceTrack,
                     muxer = muxer,
                     muxerTrack = muxerTrack,
@@ -160,7 +260,16 @@ class NleNativeExportRenderer(
                 )
                 completedTracks += 1
             }
-            emit(jobId, projectId, "export_progress", mapOf("stage" to "Finalizing", "progress" to 98))
+            emitExportState(
+                jobId = jobId,
+                projectId = projectId,
+                eventType = "export_progress",
+                previousState = "muxing",
+                exportState = "finalizing",
+                stage = "Finalizing",
+                progress = 98,
+                terminal = false,
+            )
         } finally {
             try { muxer?.stop() } catch (_: Throwable) {}
             try { muxer?.release() } catch (_: Throwable) {}
@@ -209,7 +318,16 @@ class NleNativeExportRenderer(
                 val progress = (baseProgress + localProgress).coerceIn(0, 97)
                 if (progress != lastProgress && progress % 5 == 0) {
                     lastProgress = progress
-                    emit(jobId, projectId, "export_progress", mapOf("stage" to "Muxing", "progress" to progress))
+                    emitExportState(
+                        jobId = jobId,
+                        projectId = projectId,
+                        eventType = "export_progress",
+                        previousState = "muxing",
+                        exportState = "muxing",
+                        stage = "Muxing",
+                        progress = progress,
+                        terminal = false,
+                    )
                 }
                 extractor.advance()
             }
@@ -217,6 +335,82 @@ class NleNativeExportRenderer(
         } finally {
             try { extractor.release() } catch (_: Throwable) {}
         }
+    }
+
+    private fun emitExportState(
+        jobId: String,
+        projectId: String,
+        eventType: String,
+        previousState: String,
+        exportState: String,
+        stage: String,
+        progress: Int,
+        terminal: Boolean,
+        extraPayload: Map<String, Any?> = emptyMap(),
+    ) {
+        val payload = mutableMapOf<String, Any?>(
+            "jobId" to jobId,
+            "projectId" to projectId,
+            "previousState" to previousState,
+            "exportState" to exportState,
+            "state" to exportState,
+            "stage" to stage,
+            "progress" to progress,
+            "terminal" to terminal,
+        )
+        payload.putAll(extraPayload)
+        emit(jobId, projectId, eventType, payload)
+    }
+
+    private fun exportStateForStage(stage: String, progress: Int): String {
+        return when {
+            stage.equals("Preparing", ignoreCase = true) -> "preparing"
+            stage.equals("Preflighting", ignoreCase = true) -> "preflighting"
+            stage.equals("Queued", ignoreCase = true) -> "queued"
+            stage.equals("Rendering", ignoreCase = true) -> "rendering"
+            stage.equals("Muxing", ignoreCase = true) -> "muxing"
+            stage.equals("Finalizing", ignoreCase = true) -> "finalizing"
+            stage.equals("Complete", ignoreCase = true) -> "completed"
+            stage.equals("Cancelled", ignoreCase = true) -> "cancelled"
+            stage.equals("Failed", ignoreCase = true) -> "failed"
+            else -> "rendering"
+        }
+    }
+
+    private fun exportErrorFor(error: Throwable): Map<String, Any?> {
+        val message = error.message ?: error.toString()
+        val userMessage = when {
+            error is IllegalStateException -> message
+            error is NleExportCancelledException -> "Export was cancelled."
+            else -> "An unexpected error occurred during export."
+        }
+        return exportErrorPayload(
+            code = error.javaClass.simpleName,
+            severity = "fatal",
+            userMessage = userMessage,
+            technicalMessage = message,
+            recoverySuggestion = "Check the export settings and try again.",
+            retryable = true,
+        )
+    }
+
+    private fun exportErrorPayload(
+        code: String,
+        severity: String,
+        userMessage: String,
+        technicalMessage: String = userMessage,
+        recoverySuggestion: String = "",
+        retryable: Boolean = true,
+    ): Map<String, Any?> {
+        return mapOf(
+            "code" to code,
+            "severity" to severity,
+            "userMessage" to userMessage,
+            "message" to userMessage,
+            "technicalMessage" to technicalMessage,
+            "recoverySuggestion" to recoverySuggestion,
+            "retryable" to retryable,
+        )
     }
 
     private fun emit(jobId: String, projectId: String?, type: String, payload: Map<String, Any?>) {
