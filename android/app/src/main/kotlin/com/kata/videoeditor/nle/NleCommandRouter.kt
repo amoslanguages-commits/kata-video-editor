@@ -339,6 +339,94 @@ class NleCommandRouter(
                     engineManager.getAudioEngineState(projectId)
                 }
 
+                // ── Audio engine commands (audio_*) ──────────────────────────
+
+                "audio_load_graph" ->
+                    engineManager.audioLoadGraph(
+                        projectId      = args.requireString("projectId"),
+                        audioGraphJson = args.requireString("audioGraphJson"),
+                        commandId      = commandId,
+                        updated        = false,
+                    )
+
+                "audio_update_graph" ->
+                    engineManager.audioLoadGraph(
+                        projectId      = args.requireString("projectId"),
+                        audioGraphJson = args.requireString("audioGraphJson"),
+                        commandId      = commandId,
+                        updated        = true,
+                    )
+
+                "audio_set_track_volume" ->
+                    engineManager.audioSetTrackVolume(
+                        projectId = args.requireString("projectId"),
+                        trackId   = args.requireString("trackId"),
+                        volume    = (args["volume"] as? Number)?.toFloat() ?: 1f,
+                        commandId = commandId,
+                    )
+
+                "audio_set_track_mute" ->
+                    engineManager.audioSetTrackMute(
+                        projectId = args.requireString("projectId"),
+                        trackId   = args.requireString("trackId"),
+                        muted     = args["muted"] as? Boolean ?: false,
+                        commandId = commandId,
+                    )
+
+                "audio_set_track_solo" ->
+                    engineManager.audioSetTrackSolo(
+                        projectId = args.requireString("projectId"),
+                        trackId   = args.requireString("trackId"),
+                        solo      = args["solo"] as? Boolean ?: false,
+                        commandId = commandId,
+                    )
+
+                "audio_set_clip_volume" ->
+                    engineManager.audioSetClipVolume(
+                        projectId = args.requireString("projectId"),
+                        clipId    = args.requireString("clipId"),
+                        volume    = (args["volume"] as? Number)?.toFloat() ?: 1f,
+                        commandId = commandId,
+                    )
+
+                "audio_set_clip_mute" ->
+                    engineManager.audioSetClipMute(
+                        projectId = args.requireString("projectId"),
+                        clipId    = args.requireString("clipId"),
+                        muted     = args["muted"] as? Boolean ?: false,
+                        commandId = commandId,
+                    )
+
+                "audio_set_clip_fade" ->
+                    engineManager.audioSetClipFade(
+                        projectId    = args.requireString("projectId"),
+                        clipId       = args.requireString("clipId"),
+                        fadeInUs     = args.requireLong("fadeInMicros") ?: 0L,
+                        fadeOutUs    = args.requireLong("fadeOutMicros") ?: 0L,
+                        commandId    = commandId,
+                    )
+
+                "audio_start_meter_updates" ->
+                    engineManager.audioStartMeterUpdates(
+                        projectId = args.requireString("projectId"),
+                        commandId = commandId,
+                    )
+
+                "audio_stop_meter_updates" ->
+                    engineManager.audioStopMeterUpdates(
+                        projectId = args.requireString("projectId"),
+                        commandId = commandId,
+                    )
+
+                "audio_request_mixdown" ->
+                    engineManager.audioRequestMixdown(
+                        projectId      = args.requireString("projectId"),
+                        audioGraphJson = args["audioGraphJson"] as? String,
+                        outputPath     = args["outputPath"] as? String,
+                        profileMap     = args.asStringDynamicMap("profile"),
+                        commandId      = commandId,
+                    )
+
                 NleNativeCommandType.RENDER_GPU_PREVIEW_FRAME -> {
                     val projectId          = args.requireString("projectId")
                     val renderGraphJson    = args.requireString("renderGraphJson")
