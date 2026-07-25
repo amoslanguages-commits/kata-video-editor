@@ -31,6 +31,17 @@ class NleEngineManager(
     private val nativeProxyRenderer = NleNativeProxyRenderer(eventEmitter)
     private val deviceCapabilityCollector by lazy { NleDeviceCapabilityCollector(appContext) }
     private val colorCapabilityScanner by lazy { NleDeviceColorCapabilityScanner(appContext) }
+    private val audioEngineHandler = com.kata.videoeditor.nle.audio.NleAudioEngineHandler(
+        eventEmitter = eventEmitter,
+        sessionGraphProvider = { projectId ->
+            sessions[projectId]?.let {
+                com.kata.videoeditor.nle.audio.NleAudioEngineHandler.SessionGraph(
+                    renderGraphJson = it.renderGraphJson,
+                    durationMicros = it.durationMicros,
+                )
+            }
+        },
+    )
 
     fun initialize(): Map<String, Any?> {
         initialized = true
@@ -44,6 +55,7 @@ class NleEngineManager(
         previewTextureManager.releaseAll()
         compositorSession.release()
         scopeManager.release()
+        audioEngineHandler.clear()
         initialized = false
         return mapOf("disposed" to true)
     }
@@ -233,7 +245,59 @@ class NleEngineManager(
 
     fun getAudioEngineState(projectId: String): Map<String, Any?> {
         requireInit()
-        return mapOf("initialized" to false, "projectId" to projectId)
+        return audioEngineHandler.getState(projectId)
+    }
+
+    // ── Audio engine commands (audio_*) ──────────────────────────────────────
+
+    fun audioLoadGraph(projectId: String, audioGraphJson: String, commandId: String?, updated: Boolean): Map<String, Any?> {
+        requireInit()
+        return audioEngineHandler.loadGraph(projectId, audioGraphJson, commandId, updated)
+    }
+
+    fun audioSetTrackVolume(projectId: String, trackId: String, volume: Float, commandId: String?): Map<String, Any?> {
+        requireInit()
+        return audioEngineHandler.setTrackVolume(projectId, trackId, volume, commandId)
+    }
+
+    fun audioSetTrackMute(projectId: String, trackId: String, muted: Boolean, commandId: String?): Map<String, Any?> {
+        requireInit()
+        return audioEngineHandler.setTrackMute(projectId, trackId, muted, commandId)
+    }
+
+    fun audioSetTrackSolo(projectId: String, trackId: String, solo: Boolean, commandId: String?): Map<String, Any?> {
+        requireInit()
+        return audioEngineHandler.setTrackSolo(projectId, trackId, solo, commandId)
+    }
+
+    fun audioSetClipVolume(projectId: String, clipId: String, volume: Float, commandId: String?): Map<String, Any?> {
+        requireInit()
+        return audioEngineHandler.setClipVolume(projectId, clipId, volume, commandId)
+    }
+
+    fun audioSetClipMute(projectId: String, clipId: String, muted: Boolean, commandId: String?): Map<String, Any?> {
+        requireInit()
+        return audioEngineHandler.setClipMute(projectId, clipId, muted, commandId)
+    }
+
+    fun audioSetClipFade(projectId: String, clipId: String, fadeInUs: Long, fadeOutUs: Long, commandId: String?): Map<String, Any?> {
+        requireInit()
+        return audioEngineHandler.setClipFade(projectId, clipId, fadeInUs, fadeOutUs, commandId)
+    }
+
+    fun audioStartMeterUpdates(projectId: String, commandId: String?): Map<String, Any?> {
+        requireInit()
+        return audioEngineHandler.startMeterUpdates(projectId, commandId)
+    }
+
+    fun audioStopMeterUpdates(projectId: String, commandId: String?): Map<String, Any?> {
+        requireInit()
+        return audioEngineHandler.stopMeterUpdates(projectId, commandId)
+    }
+
+    fun audioRequestMixdown(projectId: String, audioGraphJson: String?, outputPath: String?, profileMap: Map<String, Any?>, commandId: String?): Map<String, Any?> {
+        requireInit()
+        return audioEngineHandler.requestMixdown(projectId, audioGraphJson, outputPath, profileMap, commandId)
     }
 
     fun configureScopes(payload: Map<String, Any?>): Map<String, Any?> {
