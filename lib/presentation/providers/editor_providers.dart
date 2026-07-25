@@ -44,7 +44,6 @@ import 'package:nle_editor/data/repositories/proxy_repository.dart';
 import 'package:nle_editor/platform/proxy/native_proxy_generator_service.dart';
 import 'package:nle_editor/domain/services/native_export_service.dart';
 import 'package:nle_editor/presentation/controllers/native_export_event_controller.dart';
-import 'package:nle_editor/domain/services/temporary_export_service.dart';
 import 'package:nle_editor/presentation/providers/monetization_providers.dart';
 import 'package:nle_editor/presentation/providers/source_preview_providers.dart';
 import 'package:nle_editor/presentation/providers/editor_history_providers.dart';
@@ -544,14 +543,6 @@ final missingMediaServiceProvider = Provider<MissingMediaService>((ref) {
 final legacyProxyGenerationServiceProvider = Provider<ProxyGenerationService>((ref) {
   return ProxyGenerationService(
     assetRepository: ref.watch(assetRepositoryProvider),
-    storageService: ref.watch(projectStorageServiceProvider),
-  );
-});
-
-final temporaryExportServiceProvider = Provider<TemporaryExportService>((ref) {
-  return TemporaryExportService(
-    assetRepository: ref.watch(assetRepositoryProvider),
-    timelineRepository: ref.watch(timelineRepositoryProvider),
     storageService: ref.watch(projectStorageServiceProvider),
   );
 });
