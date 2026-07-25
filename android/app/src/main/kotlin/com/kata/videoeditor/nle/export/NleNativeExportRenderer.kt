@@ -228,23 +228,38 @@ class NleNativeExportRenderer(
     ): Boolean {
         val asset = timeline.assetsById[clip.assetId] ?: return false
 
-        // Pass-through always writes MP4 — any other container request needs a real encode.
-        val container = (profileMap["container"] as? String ?: profileMap["format"] as? String)?.lowercase()
-        if (container != null && container != "mp4" && container != "mpeg_4" && container != "mpeg-4") return false
+        // Pass-through always writes MP4 — any other container request needs a
+        // real encode. The Dart profile sends the container as "containerFormat"
+        // (e.g. "video/mp4" / "video/quicktime").
+        val container = (profileMap["container"] as? String
+            ?: profileMap["containerFormat"] as? String
+            ?: profileMap["format"] as? String)?.lowercase()
+        if (container != null &&
+            container != "mp4" &&
+            container != "video/mp4" &&
+            container != "mpeg_4" &&
+            container != "mpeg-4"
+        ) {
+            return false
+        }
 
-        // The remux cannot transcode — the source video codec must match the request.
+        // The remux cannot transcode — the source video codec must match the
+        // requested codec, otherwise route through the composited encoder.
         val requestedCodec = (profileMap["codec"] as? String ?: profileMap["videoCodec"] as? String)?.lowercase()
-        if (requestedCodec != null && requestedCodec.isNotEmpty()) {
+        if (!requestedCodec.isNullOrEmpty()) {
             val requiredMime = when (requestedCodec) {
                 "h264", "avc", "video/avc" -> "video/avc"
                 "hevc", "h265", "video/hevc" -> "video/hevc"
-                else -> return true // unknown codec request: use the composited encoder
+                else -> return true // unsupported codec for remux: use the composited encoder
             }
             val sourceMime = probeVideoMime(asset.decoderPath) ?: return false
             if (!sourceMime.equals(requiredMime, ignoreCase = true)) return false
         }
 
-        // HDR / wide-color requests need the color pipeline; pass-through cannot tonemap.
+        // HDR output needs the color pipeline; pass-through cannot tonemap.
+        if (profileMap.exportBool("hdrExport") == true) return false
+
+        // Explicit non-SDR color mode requests also need the color pipeline.
         val colorMode = (profileMap["colorMode"] as? String)?.lowercase()
         if (colorMode != null &&
             colorMode != "sdr" &&
