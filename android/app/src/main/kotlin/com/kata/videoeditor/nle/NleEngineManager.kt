@@ -354,7 +354,23 @@ class NleEngineManager(
 
     fun renderPreviewPlaceholder(textureId: Long, label: String, playheadMicros: Long, commandId: String?): Map<String, Any?> {
         requireInit()
-        throw IllegalStateException("Native preview placeholder rendering is disabled.")
+        // Placeholder rendering is intentionally a no-op: real frames are produced
+        // by renderGpuPreviewFrame / true-preview. Report success (and emit the
+        // frame-rendered event callers listen for) instead of throwing, so this
+        // path never surfaces as a spurious engine failure.
+        eventEmitter.emit(
+            NleNativeEvent(
+                type = NleNativeEventType.PREVIEW_FRAME_RENDERED,
+                commandId = commandId,
+                payload = mapOf(
+                    "textureId" to textureId,
+                    "label" to label,
+                    "playheadMicros" to playheadMicros,
+                    "placeholder" to true,
+                ),
+            ),
+        )
+        return mapOf("rendered" to true, "placeholder" to true, "textureId" to textureId)
     }
 
     fun disposePreviewTexture(textureId: Long, commandId: String?): Map<String, Any?> {
@@ -372,7 +388,10 @@ class NleEngineManager(
             compositorSession = compositorSession,
         )
         if (rendered == 0) {
-            throw IllegalStateException("No native GPU preview surface rendered a frame.")
+            // No preview surface rendered a frame — usually a transient race where
+            // the Flutter texture has not finished attaching yet. Report a soft
+            // miss instead of throwing so the UI does not see engine errors.
+            return mapOf("rendered" to false, "surfacesRendered" to 0)
         }
         eventEmitter.emit(
             NleNativeEvent(

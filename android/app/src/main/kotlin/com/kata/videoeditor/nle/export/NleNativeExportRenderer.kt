@@ -84,7 +84,7 @@ class NleNativeExportRenderer(
 
         thread(name = "nle-native-export-$jobId") {
             try {
-                val rendererName = if (requiresCompositedExport(timeline) || needsAudioMixdown) {
+                val rendererName = if (requiresCompositedExport(timeline, profileMap) || needsAudioMixdown) {
                     NleCompositedExportRenderer { type, payload ->
                         if (type == "export_progress") {
                             val stage = payload["stage"] as? String ?: "Unknown"
@@ -204,14 +204,77 @@ class NleNativeExportRenderer(
         }
     }
 
-    private fun requiresCompositedExport(timeline: NleTrueExportTimeline): Boolean {
+    private fun requiresCompositedExport(timeline: NleTrueExportTimeline, profileMap: Map<String, Any?>): Boolean {
         if (timeline.visualClips.size != 1) return true
         val clip = timeline.visualClips.first()
         if (clip.clipType != "video") return true
         if (clip.speed != 1.0) return true
         if (clip.rotation != 0f || clip.scale != 1f || clip.positionX != 0f || clip.positionY != 0f || clip.opacity != 1f) return true
         if (clip.brightness != 0f || clip.contrast != 1f || clip.saturation != 1f) return true
+        // A trimmed start can only be honoured keyframe-accurately by remuxing
+        // (SEEK_TO_PREVIOUS_SYNC), which would leak pre-trim frames into the
+        // output. Route trimmed clips through the composited re-encode instead.
+        if (clip.sourceStartUs > 0L) return true
+        // Pass-through remuxes compressed samples unchanged, so it is only valid
+        // when the requested container/codec/color mode matches the source.
+        if (!passThroughMatchesProfile(timeline, clip, profileMap)) return true
         return false
+    }
+
+    private fun passThroughMatchesProfile(
+        timeline: NleTrueExportTimeline,
+        clip: NleTrueExportClip,
+        profileMap: Map<String, Any?>,
+    ): Boolean {
+        val asset = timeline.assetsById[clip.assetId] ?: return false
+
+        // Pass-through always writes MP4 — any other container request needs a real encode.
+        val container = (profileMap["container"] as? String ?: profileMap["format"] as? String)?.lowercase()
+        if (container != null && container != "mp4" && container != "mpeg_4" && container != "mpeg-4") return false
+
+        // The remux cannot transcode — the source video codec must match the request.
+        val requestedCodec = (profileMap["codec"] as? String ?: profileMap["videoCodec"] as? String)?.lowercase()
+        if (requestedCodec != null && requestedCodec.isNotEmpty()) {
+            val requiredMime = when (requestedCodec) {
+                "h264", "avc", "video/avc" -> "video/avc"
+                "hevc", "h265", "video/hevc" -> "video/hevc"
+                else -> return true // unknown codec request: use the composited encoder
+            }
+            val sourceMime = probeVideoMime(asset.decoderPath) ?: return false
+            if (!sourceMime.equals(requiredMime, ignoreCase = true)) return false
+        }
+
+        // HDR / wide-color requests need the color pipeline; pass-through cannot tonemap.
+        val colorMode = (profileMap["colorMode"] as? String)?.lowercase()
+        if (colorMode != null &&
+            colorMode != "sdr" &&
+            colorMode != "rec709" &&
+            colorMode != "rec709sdr"
+        ) {
+            return false
+        }
+
+        return true
+    }
+
+    private fun probeVideoMime(path: String): String? {
+        val extractor = MediaExtractor()
+        return try {
+            extractor.setDataSource(path)
+            var videoMime: String? = null
+            for (i in 0 until extractor.trackCount) {
+                val mime = extractor.getTrackFormat(i).getString(MediaFormat.KEY_MIME)
+                if (mime != null && mime.startsWith("video/")) {
+                    videoMime = mime
+                    break
+                }
+            }
+            videoMime
+        } catch (_: Throwable) {
+            null
+        } finally {
+            try { extractor.release() } catch (_: Throwable) {}
+        }
     }
 
     private fun requiresAudioMixdown(renderGraphJson: String): Boolean {
