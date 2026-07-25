@@ -1080,7 +1080,7 @@ final exportStateProvider =
   return ExportStateNotifier(
     ref: ref,
     exportRepository: ref.watch(exportRepositoryProvider),
-    temporaryExportService: ref.watch(temporaryExportServiceProvider),
+    nativeExportService: ref.watch(nativeExportServiceProvider),
     projectRepository: ref.watch(projectRepositoryProvider),
     monetizationService: ref.watch(monetizationServiceProvider),
   );
@@ -1089,19 +1089,19 @@ final exportStateProvider =
 class ExportStateNotifier extends StateNotifier<ExportState> {
   final Ref ref;
   final ExportRepository exportRepository;
-  final TemporaryExportService temporaryExportService;
+  final NativeExportService nativeExportService;
   final ProjectRepository projectRepository;
   final MonetizationService monetizationService;
+
+  StreamSubscription<NativeEvent>? _jobEventSub;
 
   ExportStateNotifier({
     required this.ref,
     required this.exportRepository,
-    required this.temporaryExportService,
+    required this.nativeExportService,
     required this.projectRepository,
     required this.monetizationService,
   }) : super(const ExportState());
-
-  static const _uuid = Uuid();
 
   Future<void> startExport({
     required String projectId,
@@ -1167,82 +1167,110 @@ class ExportStateNotifier extends StateNotifier<ExportState> {
       return;
     }
 
-    final jobId = _uuid.v4();
-    state = ExportState(
+    state = const ExportState(
       isExporting: true,
       progress: 0,
       stage: 'Preparing',
-      jobId: jobId,
-    );
-
-    await exportRepository.insertExportJob(
-      ExportJobsCompanion.insert(
-        id: jobId,
-        projectId: projectId,
-        status: const Value('running'),
-        progress: const Value(0),
-        stage: const Value('Preparing'),
-        settings: jsonEncode(settings),
-      ),
     );
 
     try {
-      await for (final progress
-          in temporaryExportService.exportSimpleV1Sequence(
+      // Canonical path: NativeExportService runs permissions, render-graph
+      // build, preflight, inserts the job row and dispatches start_export_job
+      // to the native engine. Progress then arrives as native events.
+      final jobId = await nativeExportService.startExport(
         projectId: projectId,
-        targetWidth: targetWidth,
-        targetHeight: resolutionHeight,
-        frameRate: project?.targetFrameRate ?? 30,
-        preset: preset,
-        bitrate: bitrate,
-      )) {
-        state = state.copyWith(
-          progress: progress.progress,
-          stage: progress.stage,
-          outputPath: progress.outputPath,
-        );
+        settings: {
+          ...settings,
+          'width': targetWidth,
+          'resolution': resolutionHeight,
+          'frameRate': project?.targetFrameRate ?? 30,
+          'preset': preset,
+          'bitrate': bitrate,
+        },
+      );
 
-        await exportRepository.updateExportJob(
-          jobId,
-          ExportJobsCompanion(
-            progress: Value(progress.progress),
-            stage: Value(progress.stage),
-            outputPath: Value(progress.outputPath),
-            status: Value(progress.progress >= 100 ? 'completed' : 'running'),
-            completedAt: progress.progress >= 100
-                ? Value(DateTime.now())
-                : const Value.absent(),
-          ),
-        );
-      }
+      state = state.copyWith(jobId: jobId);
+      _trackNativeJob(jobId);
     } catch (e) {
-      state = state.copyWith(
+      state = ExportState(
         isExporting: false,
         error: e.toString(),
         stage: 'Failed',
       );
-
-      await exportRepository.updateExportJob(
-        jobId,
-        ExportJobsCompanion(
-          status: const Value('failed'),
-          errorMessage: Value(e.toString()),
-          stage: const Value('Failed'),
-        ),
-      );
-
-      return;
     }
+  }
 
-    state = state.copyWith(
-      isExporting: false,
-      progress: 100,
-      stage: 'Complete',
-    );
+  /// Mirrors native export events for [jobId] into this notifier's state so
+  /// the UI (status chip, success navigation, cancel button) stays in sync.
+  /// The authoritative DB updates are handled by NativeExportEventController.
+  void _trackNativeJob(String jobId) {
+    _jobEventSub?.cancel();
+    _jobEventSub = ref.read(nativeBridgeProvider).events.listen((event) {
+      if (event.jobId != jobId) return;
+
+      switch (event.type) {
+        case NativeEventTypes.exportStarted:
+          state = state.copyWith(
+            isExporting: true,
+            progress: 0,
+            stage: 'Preparing',
+          );
+          break;
+
+        case NativeEventTypes.exportProgress:
+          final progress =
+              (event.payload['progress'] as num?)?.toInt() ?? state.progress;
+          final stage = event.payload['stage']?.toString() ?? state.stage;
+          state = state.copyWith(progress: progress, stage: stage);
+          break;
+
+        case NativeEventTypes.exportCompleted:
+          final result = event.payload['result'];
+          String? outputPath;
+          if (result is Map) {
+            outputPath = result['outputPath']?.toString();
+          }
+          outputPath ??= event.payload['outputPath']?.toString();
+          _stopTracking();
+          state = state.copyWith(
+            isExporting: false,
+            progress: 100,
+            stage: 'Complete',
+            outputPath: outputPath,
+          );
+          break;
+
+        case NativeEventTypes.exportFailed:
+          final message =
+              event.payload['errorMessage']?.toString() ?? 'Export failed.';
+          _stopTracking();
+          state = state.copyWith(
+            isExporting: false,
+            stage: 'Failed',
+            error: message,
+          );
+          break;
+
+        case NativeEventTypes.exportCancelled:
+          _stopTracking();
+          state = state.copyWith(
+            isExporting: false,
+            progress: 0,
+            stage: 'Cancelled',
+          );
+          break;
+      }
+    });
+  }
+
+  void _stopTracking() {
+    _jobEventSub?.cancel();
+    _jobEventSub = null;
   }
 
   Future<void> cancelExport() async {
     final jobId = state.jobId;
+    _stopTracking();
     state = state.copyWith(
       isExporting: false,
       progress: 0,
@@ -1250,14 +1278,18 @@ class ExportStateNotifier extends StateNotifier<ExportState> {
     );
 
     if (jobId != null) {
-      await exportRepository.updateExportJob(
-        jobId,
-        const ExportJobsCompanion(
-          status: Value('cancelled'),
-          stage: Value('Cancelled'),
-        ),
-      );
+      // Tell the native engine to stop rendering — the resulting
+      // export_cancelled event updates the job row via the event controller.
+      try {
+        await nativeExportService.cancelExport(jobId: jobId);
+      } catch (_) {}
     }
+  }
+
+  @override
+  void dispose() {
+    _stopTracking();
+    super.dispose();
   }
 }
 
