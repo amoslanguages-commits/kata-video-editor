@@ -90,13 +90,16 @@ class MonetizationService {
             : DateTime.now().add(const Duration(days: 30)).toIso8601String();
 
         try {
+          // onConflict targets the unique(user_id) constraint so repeat
+          // purchases update the single row instead of inserting duplicates
+          // (duplicates break maybeSingle() in _fetchAndSyncSupabaseSubscription).
           await Supabase.instance.client.from('subscriptions').upsert({
             'user_id': currentUser.id,
             'plan': plan,
             'status': 'active',
             'expires_at': expiresAt,
             'updated_at': DateTime.now().toIso8601String(),
-          });
+          }, onConflict: 'user_id');
 
           final entitlement = ProEntitlement(
             status: product.isLifetime ? ProPlanStatus.lifetime : ProPlanStatus.proMonthly,

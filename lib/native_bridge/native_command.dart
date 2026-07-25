@@ -6,7 +6,7 @@ class NativeCommandTypes {
   NativeCommandTypes._();
 
   static const String initialize = 'initialize';
-  static const String dispose    = 'destroy_engine'; // legacy alias kept for FakeNativeBridge
+  static const String dispose    = 'dispose'; // matches the Android & iOS native routers
 
   static const String createEngine  = 'create_engine';
   static const String destroyEngine = 'destroy_engine';
